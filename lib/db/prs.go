@@ -54,6 +54,15 @@ type PR struct {
 	LastCommitAt      time.Time
 	URL               string
 	FetchedAt         time.Time
+
+	MergedBy   string
+	Milestone  string
+	BaseRef    string
+	HeadRef    string
+	CheckState string // the head commit's combined CI state: SUCCESS | FAILURE | ERROR | PENDING | EXPECTED | ""
+	// EventsCursor is non-empty while the timeline has pages past the first
+	// still to fetch; "" once the stored events are complete.
+	EventsCursor string
 }
 
 // HasLabel reports whether the PR carries the exact label name.
@@ -118,6 +127,8 @@ type PRBundle struct {
 	Comments []Comment
 	Reviews  []Review
 	Closes   []LinkedIssue
+	Events   []Event  // the first timeline page; PR.EventsCursor says whether more follow
+	Commits  []Commit // the commits among those events
 }
 
 // SavePRs writes a page of PRs (with their comments, reviews, and linked
@@ -162,9 +173,12 @@ func saveBundle(tx *sql.Tx, b *PRBundle) error {
 	_, err = tx.Exec(`
 		INSERT INTO prs (number, title, body, state, is_draft, author, author_association,
 			created_at, updated_at, closed_at, merged_at, labels, mergeable, review_decision,
-			additions, deletions, changed_files, files, comment_count, thumbs_up, last_commit_at, url, fetched_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			additions, deletions, changed_files, files, comment_count, thumbs_up, last_commit_at, url, fetched_at,
+			merged_by, milestone, base_ref, head_ref, events_cursor, check_state)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(number) DO UPDATE SET
+			merged_by = excluded.merged_by, milestone = excluded.milestone, base_ref = excluded.base_ref,
+			head_ref = excluded.head_ref, events_cursor = excluded.events_cursor, check_state = excluded.check_state,
 			title = excluded.title, body = excluded.body, state = excluded.state,
 			is_draft = excluded.is_draft, author = excluded.author,
 			author_association = excluded.author_association, created_at = excluded.created_at,
@@ -176,9 +190,22 @@ func saveBundle(tx *sql.Tx, b *PRBundle) error {
 		p.Number, p.Title, p.Body, p.State, boolToInt(p.IsDraft), p.Author, p.AuthorAssociation,
 		toDBTime(p.CreatedAt), toDBTime(p.UpdatedAt), toDBTime(p.ClosedAt), toDBTime(p.MergedAt), string(labels),
 		p.Mergeable, p.ReviewDecision, p.Additions, p.Deletions, p.ChangedFiles, string(files),
-		p.CommentCount, p.ThumbsUp, toDBTime(p.LastCommitAt), p.URL, toDBTime(p.FetchedAt))
+		p.CommentCount, p.ThumbsUp, toDBTime(p.LastCommitAt), p.URL, toDBTime(p.FetchedAt),
+		p.MergedBy, p.Milestone, p.BaseRef, p.HeadRef, p.EventsCursor, p.CheckState)
 	if err != nil {
 		return fmt.Errorf("upserting PR #%d: %w", p.Number, err)
+	}
+
+	// the timeline is replaced from its first page; later pages append via
+	// SaveEvents, and a PR whose events_cursor is set is not complete yet
+	if _, err := tx.Exec("DELETE FROM events WHERE pr_number = ?", p.Number); err != nil {
+		return fmt.Errorf("clearing events for #%d: %w", p.Number, err)
+	}
+	if _, err := tx.Exec("DELETE FROM commits WHERE pr_number = ?", p.Number); err != nil {
+		return fmt.Errorf("clearing commits for #%d: %w", p.Number, err)
+	}
+	if err := insertEvents(tx, p.Number, b.Events, b.Commits); err != nil {
+		return err
 	}
 
 	// comments/reviews/closes are replaced wholesale so deletions and edits upstream are reflected
@@ -224,7 +251,8 @@ func saveBundle(tx *sql.Tx, b *PRBundle) error {
 
 const prCols = `number, title, body, state, is_draft, author, author_association,
 	created_at, updated_at, closed_at, merged_at, labels, mergeable, review_decision,
-	additions, deletions, changed_files, files, comment_count, thumbs_up, last_commit_at, url, fetched_at`
+	additions, deletions, changed_files, files, comment_count, thumbs_up, last_commit_at, url, fetched_at,
+	merged_by, milestone, base_ref, head_ref, events_cursor, check_state`
 
 func scanPR(row interface{ Scan(...any) error }) (*PR, error) {
 	var p PR
@@ -232,7 +260,8 @@ func scanPR(row interface{ Scan(...any) error }) (*PR, error) {
 	var created, updated, closed, merged, lastCommit, fetched, labels, files string
 	if err := row.Scan(&p.Number, &p.Title, &p.Body, &p.State, &isDraft, &p.Author, &p.AuthorAssociation,
 		&created, &updated, &closed, &merged, &labels, &p.Mergeable, &p.ReviewDecision,
-		&p.Additions, &p.Deletions, &p.ChangedFiles, &files, &p.CommentCount, &p.ThumbsUp, &lastCommit, &p.URL, &fetched); err != nil {
+		&p.Additions, &p.Deletions, &p.ChangedFiles, &files, &p.CommentCount, &p.ThumbsUp, &lastCommit, &p.URL, &fetched,
+		&p.MergedBy, &p.Milestone, &p.BaseRef, &p.HeadRef, &p.EventsCursor, &p.CheckState); err != nil {
 		return nil, err
 	}
 	p.IsDraft = isDraft != 0
@@ -265,6 +294,28 @@ func (d *DB) OpenPRs() ([]*PR, error) {
 	rows, err := d.Query("SELECT " + prCols + " FROM prs WHERE state = 'OPEN' ORDER BY number ASC")
 	if err != nil {
 		return nil, fmt.Errorf("querying open PRs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var prs []*PR
+	for rows.Next() {
+		p, err := scanPR(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning PR: %w", err)
+		}
+		prs = append(prs, p)
+	}
+	return prs, rows.Err()
+}
+
+// PRsSince returns every PR that was open at any point on or after since:
+// the open set plus everything closed or merged since then, oldest first.
+// This is the explore page's population.
+func (d *DB) PRsSince(since time.Time) ([]*PR, error) {
+	rows, err := d.Query("SELECT "+prCols+" FROM prs WHERE state = 'OPEN' OR closed_at >= ? OR merged_at >= ? ORDER BY number ASC",
+		toDBTime(since), toDBTime(since))
+	if err != nil {
+		return nil, fmt.Errorf("querying PRs since %s: %w", since.Format("2006-01-02"), err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -410,6 +461,41 @@ func (d *DB) MarkPRsClosed(numbers []int) error {
 		return fmt.Errorf("committing reconcile tx: %w", err)
 	}
 	return nil
+}
+
+// PRStatus is a PR's mergeability and CI state, as the open-set reconcile
+// refreshes them.
+type PRStatus struct {
+	Mergeable  string
+	CheckState string
+}
+
+// UpdateOpenStatuses writes fresh mergeability and CI states onto locally
+// open PRs, and returns how many rows changed. Both move without the PR's
+// updated_at moving, so the incremental sync never sees them; the reconcile
+// walk does, on every fetch.
+func (d *DB) UpdateOpenStatuses(statuses map[int]PRStatus) (int, error) {
+	tx, err := d.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("beginning status tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	changed := 0
+	for n, s := range statuses {
+		res, err := tx.Exec("UPDATE prs SET mergeable = ?, check_state = ? WHERE number = ? AND state = ? AND (mergeable != ? OR check_state != ?)",
+			s.Mergeable, s.CheckState, n, PROpen, s.Mergeable, s.CheckState)
+		if err != nil {
+			return 0, fmt.Errorf("updating status of #%d: %w", n, err)
+		}
+		if rows, _ := res.RowsAffected(); rows > 0 {
+			changed++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("committing status tx: %w", err)
+	}
+	return changed, nil
 }
 
 // CountPRs returns total and open PR counts.

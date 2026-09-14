@@ -49,8 +49,8 @@ approved action.`,
 
 	fetchCmd := &cobra.Command{
 		Use:           "fetch",
-		Short:         "fetches all open PRs (with comments, reviews, files, linked issues, and diffs) into the database",
-		Long:          `Fetches every open pull request — title, body, all comments, reviews, changed files, labels, and the issues its closing keywords reference — via the GraphQL API into the local database, then each open PR's unified diff via REST (one call per new or updated PR, so the checks can see what a PR actually changes). The first run walks everything (resumable); later runs sync incrementally and reconcile the open set against GitHub.`,
+		Short:         "fetches all open PRs (with comments, reviews, files, linked issues, timelines, and diffs) into the database",
+		Long:          `Fetches every open pull request — title, body, all comments, reviews, changed files, labels, the issues its closing keywords reference, and its full timeline of events — via the GraphQL API into the local database, then each open PR's unified diff via REST (one call per new or updated PR, so the checks can see what a PR actually changes). The first run walks everything (resumable); later runs sync incrementally and reconcile the open set against GitHub. With --since (or PRAWN_SINCE) it also backfills every PR closed or merged since that date, timeline included, which is what prawn explore reads: the whole population of PRs that were open at any point in the period.`,
 		Aliases:       []string{"f"},
 		Args:          cobra.NoArgs,
 		PreRunE:       ValidateParams([]string{ParamTokenGH, ParamRepo, "db"}),
@@ -130,6 +130,7 @@ approved action.`,
 
 func addFetchFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("full", false, "force a full re-walk instead of an incremental sync")
+	cmd.Flags().String("since", "", "also backfill every PR closed or merged since this date (yyyy-mm-dd) with its timeline, for prawn explore — or set PRAWN_SINCE")
 }
 
 func addReopenFlags(cmd *cobra.Command) {

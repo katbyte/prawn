@@ -140,6 +140,49 @@ CREATE TABLE diffs (
   updated_at TEXT NOT NULL DEFAULT '',
   diff       TEXT NOT NULL DEFAULT ''
 ) WITHOUT ROWID;
+`, `
+-- the explore backfill: every PR open in the period, with its full timeline
+-- (label changes, review requests, commits, reviews, comments, closes...) so
+-- the derived stats — ball in court, waiting cycles, response times — are
+-- recomputable from the events rather than guessed from the current state
+ALTER TABLE prs ADD COLUMN merged_by     TEXT NOT NULL DEFAULT '';
+ALTER TABLE prs ADD COLUMN milestone     TEXT NOT NULL DEFAULT '';
+ALTER TABLE prs ADD COLUMN base_ref      TEXT NOT NULL DEFAULT '';
+ALTER TABLE prs ADD COLUMN head_ref      TEXT NOT NULL DEFAULT '';
+-- non-empty: the timeline has more pages past this cursor, fetched by the
+-- follow-up sync; '' means the stored events are complete
+ALTER TABLE prs ADD COLUMN events_cursor TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE events (
+  id         TEXT PRIMARY KEY,
+  pr_number  INTEGER NOT NULL,
+  type       TEXT NOT NULL DEFAULT '',
+  actor      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT '',
+  label      TEXT NOT NULL DEFAULT '',
+  milestone  TEXT NOT NULL DEFAULT '',
+  subject    TEXT NOT NULL DEFAULT '',
+  state      TEXT NOT NULL DEFAULT '',
+  raw        TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX idx_events_pr ON events(pr_number, created_at);
+
+CREATE TABLE commits (
+  oid          TEXT PRIMARY KEY,
+  pr_number    INTEGER NOT NULL,
+  author       TEXT NOT NULL DEFAULT '',
+  author_name  TEXT NOT NULL DEFAULT '',
+  authored_at  TEXT NOT NULL DEFAULT '',
+  committed_at TEXT NOT NULL DEFAULT '',
+  additions    INTEGER NOT NULL DEFAULT 0,
+  deletions    INTEGER NOT NULL DEFAULT 0,
+  headline     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_commits_pr ON commits(pr_number, committed_at);
+`, `
+-- the combined CI state of the head commit (SUCCESS, FAILURE, ERROR, PENDING,
+-- EXPECTED, '' when there are no checks), as fetched; stale once a PR closes
+ALTER TABLE prs ADD COLUMN check_state TEXT NOT NULL DEFAULT '';
 `}
 
 func (d *DB) migrate() error {

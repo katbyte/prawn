@@ -54,23 +54,11 @@ func (f *Flags) Report() error {
 	now := time.Now()
 	data := cli.ReportData{Repo: f.GH.Repo, Noun: "close candidates", WithAI: o.WithAI, GeneratedAt: now.Format("2006-01-02 15:04")}
 
-	resolved, err := f.resolvedReportSection(d, o, now)
+	sections, err := f.ReportSections(d, o, now)
 	if err != nil {
 		return err
 	}
-	duplicate, err := f.duplicateReportSection(d, o, now)
-	if err != nil {
-		return err
-	}
-	stale, err := f.staleReportSection(d, o, now)
-	if err != nil {
-		return err
-	}
-	deprecated, err := f.deprecatedReportSection(d, o, now)
-	if err != nil {
-		return err
-	}
-	data.Sections = []cli.ReportSection{resolved, duplicate, stale, deprecated}
+	data.Sections = sections
 	for _, s := range data.Sections {
 		data.Total += s.Total
 	}
@@ -78,6 +66,7 @@ func (f *Flags) Report() error {
 		cout.Printf("no close candidates in any check — is the db fetched? (<cyan>prawn fetch</>)\n")
 		return nil
 	}
+	resolved, duplicate, stale, deprecated := sections[0], sections[1], sections[2], sections[3]
 
 	if err := os.MkdirAll(o.Out, 0o750); err != nil {
 		return fmt.Errorf("creating %s: %w", o.Out, err)
@@ -96,6 +85,29 @@ func (f *Flags) Report() error {
 		cout.Printf("<gray>open:</> <cyan>file://%s</>\n", abs)
 	}
 	return nil
+}
+
+// ReportSections runs every close check and returns its report section, in
+// the report's order: resolved, duplicate, stale, deprecated. The explore
+// page's checks tab rides this too.
+func (f *Flags) ReportSections(d *db.DB, o cli.FlagsReport, now time.Time) ([]cli.ReportSection, error) {
+	resolved, err := f.resolvedReportSection(d, o, now)
+	if err != nil {
+		return nil, err
+	}
+	duplicate, err := f.duplicateReportSection(d, o, now)
+	if err != nil {
+		return nil, err
+	}
+	stale, err := f.staleReportSection(d, o, now)
+	if err != nil {
+		return nil, err
+	}
+	deprecated, err := f.deprecatedReportSection(d, o, now)
+	if err != nil {
+		return nil, err
+	}
+	return []cli.ReportSection{resolved, duplicate, stale, deprecated}, nil
 }
 
 // prMeta is the meta line every section's items share.

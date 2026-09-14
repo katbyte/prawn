@@ -27,6 +27,10 @@ type Flags struct {
 // flags is every check RunE's entry point to the fully populated Flags.
 func flags() *Flags { return &Flags{FlagData: cli.GetFlags()} }
 
+// NewFlags wraps already-read flag data — for commands outside this package
+// (prawn explore) that run the checks.
+func NewFlags(f *cli.FlagData) *Flags { return &Flags{FlagData: f} }
+
 // evidence keys every check's action rows share.
 const (
 	evidenceKeyClass = "class"

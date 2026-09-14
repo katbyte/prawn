@@ -8,8 +8,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +27,18 @@ const (
 	metaWalkCursor = "pr_walk_cursor"
 	metaWalkDone   = "pr_walk_done"
 	metaLastSync   = "pr_last_sync"
+
+	// the closed-PR backfill: the date the completed backfill reaches back
+	// to, and — while one runs — the window boundary it has reached and the
+	// date it is filling up to
+	metaBackfillSince = "pr_backfill_since"
+	metaBackfillUntil = "pr_backfill_until"
+	metaBackfillEnd   = "pr_backfill_end"
 )
+
+// backfillWindowCap is the most PRs one search window may hold: the search
+// API stops at 1000 results, so a window over the cap is split until under.
+const backfillWindowCap = 900
 
 // syncOverlap is re-fetched behind the last sync point so edits that landed
 // while the previous sync ran are never missed.
@@ -98,6 +111,18 @@ func (f *FlagData) fetch(d *db.DB, full bool) error {
 		}
 	}
 	if err := f.reconcile(d, client, owner, name); err != nil {
+		return err
+	}
+	since, err := f.SinceTime()
+	if err != nil {
+		return err
+	}
+	if !since.IsZero() {
+		if err := f.backfill(d, client, owner, name, since); err != nil {
+			return err
+		}
+	}
+	if err := f.syncTimelines(d, client, owner, name); err != nil {
 		return err
 	}
 	if err := f.syncDiffs(d); err != nil {
@@ -189,8 +214,206 @@ func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) erro
 	}
 }
 
-// reconcile pages just the numbers of github's real open set and closes local
-// rows that fell out of it — catches closes the search-index lag hides.
+// backfill walks every PR closed or merged since the date — the rest of the
+// population that was open at some point in the period — in month windows
+// (split when a window nears the search cap), recording progress per window
+// so an interrupted run resumes at the last window that completed. A later
+// run with an earlier --since fills only the gap.
+func (f *FlagData) backfill(d *db.DB, client *gh.Client, owner, name string, since time.Time) error {
+	covered, err := d.GetMeta(metaBackfillSince)
+	if err != nil {
+		return err
+	}
+	// windows are [from, to) on whole days, so the default end is tomorrow:
+	// PRs closed earlier today are in the last window, not in a gap between
+	// this backfill and the next sync (whose point is this run's start)
+	now := db.Now()
+	end := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	if t, terr := time.Parse("2006-01-02", covered); terr == nil {
+		if !since.Before(t) {
+			cout.Verbosef("  <gray>backfill: closed PRs since %s already fetched</>\n", covered)
+			return nil
+		}
+		end = t // an earlier since: fill only [since, covered)
+	}
+	// an interrupted run left its target end and progress behind
+	if v, verr := d.GetMeta(metaBackfillEnd); verr == nil && v != "" {
+		if t, terr := time.Parse("2006-01-02", v); terr == nil {
+			end = t
+		}
+	}
+	start := since
+	if v, verr := d.GetMeta(metaBackfillUntil); verr == nil && v != "" {
+		if t, terr := time.Parse("2006-01-02", v); terr == nil && t.After(start) {
+			start = t
+			cout.Printf("resuming the closed-PR backfill of %s from <yellow>%s</>...\n", f.RepoTag(), v)
+		}
+	}
+	if err := d.SetMeta(metaBackfillEnd, end.Format("2006-01-02")); err != nil {
+		return err
+	}
+	if start.Equal(since) {
+		cout.Printf("backfilling every PR of %s closed or merged since <yellow>%s</> (timelines included)...\n",
+			f.RepoTag(), since.Format("2006-01-02"))
+	}
+
+	fetched := 0
+	for ws := start; ws.Before(end); {
+		we := time.Date(ws.Year(), ws.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+		if we.After(end) {
+			we = end
+		}
+		n, err := f.backfillWindow(d, client, owner, name, ws, we)
+		if err != nil {
+			return err
+		}
+		fetched += n
+		if err := d.SetMeta(metaBackfillUntil, we.Format("2006-01-02")); err != nil {
+			return err
+		}
+		ws = we
+	}
+
+	if err := d.SetMeta(metaBackfillSince, since.Format("2006-01-02")); err != nil {
+		return err
+	}
+	for _, k := range []string{metaBackfillUntil, metaBackfillEnd} {
+		if err := d.DeleteMeta(k); err != nil {
+			return err
+		}
+	}
+	cout.Printf("  <gray>backfill complete: %d closed PRs fetched</>\n", fetched)
+	return nil
+}
+
+// backfillWindow fetches the PRs closed in [from, to), splitting the window
+// in half while it holds more than the search cap.
+func (f *FlagData) backfillWindow(d *db.DB, client *gh.Client, owner, name string, from, to time.Time) (int, error) {
+	// the search's closed:A..B is inclusive of B's whole day, so end a day early
+	last := to.AddDate(0, 0, -1)
+	if last.Before(from) {
+		last = from
+	}
+	count, err := client.ClosedPRCount(owner, name, from, last)
+	if err != nil {
+		return 0, err
+	}
+	if count > backfillWindowCap && to.Sub(from) > 24*time.Hour {
+		mid := from.Add(to.Sub(from) / 2).Truncate(24 * time.Hour)
+		a, err := f.backfillWindow(d, client, owner, name, from, mid)
+		if err != nil {
+			return a, err
+		}
+		b, err := f.backfillWindow(d, client, owner, name, mid, to)
+		return a + b, err
+	}
+	if count == 0 {
+		return 0, nil
+	}
+
+	cursor, fetched, pageSize := "", 0, gh.ClosedPRsPageSize
+	for {
+		page, err := client.ClosedPRs(owner, name, from, last, cursor, pageSize)
+		if err != nil {
+			// the client already retried with growing waits; a page that still
+			// fails is too heavy for the gateway — take the rest of the window
+			// in small bites before giving up
+			if pageSize > gh.ClosedPRsSmallPage {
+				cout.Printf("  <yellow>page failed (%v) — retrying this window in pages of %d</>\n", err, gh.ClosedPRsSmallPage)
+				pageSize = gh.ClosedPRsSmallPage
+				continue
+			}
+			return fetched, err
+		}
+		if err := d.SavePRs(bundles(page.PRs), "", ""); err != nil {
+			return fetched, err
+		}
+		fetched += len(page.PRs)
+		cout.Printf("  <gray>%s..%s: %d/%d fetched · rate limit: %d remaining</>\n",
+			from.Format("2006-01-02"), last.Format("2006-01-02"), fetched, page.PRCount, page.RateLimit.Remaining)
+		page.RateLimit.WaitIfLow()
+		if !page.PageInfo.HasNextPage {
+			return fetched, nil
+		}
+		cursor = page.PageInfo.EndCursor
+	}
+}
+
+// syncTimelines fetches the remaining timeline pages of every PR whose first
+// page (fetched with the PR) had more — long threads, mostly — one request
+// per page, saved as it goes.
+func (f *FlagData) syncTimelines(d *db.DB, client *gh.Client, owner, name string) error {
+	pending, err := d.IncompleteTimelines()
+	if err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		cout.Verbosef("  <gray>timelines: every PR's timeline is complete</>\n")
+		return nil
+	}
+	cout.Printf("fetching the remaining timeline pages of <yellow>%d</> PRs with long histories...\n", len(pending))
+	numbers := make([]int, 0, len(pending))
+	for n := range pending {
+		numbers = append(numbers, n)
+	}
+	sort.Ints(numbers)
+	pages := 0
+	for i, n := range numbers {
+		cursor := pending[n]
+		for cursor != "" {
+			page, rl, err := client.PRTimeline(owner, name, n, cursor)
+			if err != nil {
+				return err
+			}
+			events, commits := timelineRows(n, page.Nodes)
+			next := ""
+			if page.PageInfo.HasNextPage {
+				next = page.PageInfo.EndCursor
+			}
+			if err := d.SaveEvents(n, events, commits, next); err != nil {
+				return err
+			}
+			pages++
+			rl.WaitIfLow()
+			cursor = next
+		}
+		if (i+1)%25 == 0 || i+1 == len(numbers) {
+			cout.Printf("  <gray>%d/%d timelines completed (%d pages)</>\n", i+1, len(numbers), pages)
+		}
+	}
+	return nil
+}
+
+// timelineRows converts raw timeline nodes into event rows and, for the
+// commit items among them, commit rows.
+func timelineRows(number int, nodes []json.RawMessage) ([]db.Event, []db.Commit) {
+	events := make([]db.Event, 0, len(nodes))
+	var commits []db.Commit
+	for _, raw := range nodes {
+		n, err := gh.ParseTimelineNode(raw)
+		if err != nil || n.ID == "" {
+			continue // a node the token can't read, nulled by DoTolerant
+		}
+		e := db.Event{
+			ID: n.ID, PRNumber: number, Type: n.Typename, Actor: n.Who(), CreatedAt: n.When(),
+			Label: n.Label.Name, Milestone: n.MilestoneTitle, Subject: n.Subject(), State: n.State, Raw: string(raw),
+		}
+		events = append(events, e)
+		if n.Typename == db.EventCommit && n.Commit.Oid != "" {
+			commits = append(commits, db.Commit{
+				Oid: n.Commit.Oid, PRNumber: number, Author: n.Commit.Author.User.Login, AuthorName: n.Commit.Author.Name,
+				AuthoredAt: n.Commit.AuthoredDate, CommittedAt: n.Commit.CommittedDate,
+				Additions: n.Commit.Additions, Deletions: n.Commit.Deletions, Headline: n.Commit.MessageHeadline,
+			})
+		}
+	}
+	return events, commits
+}
+
+// reconcile pages github's real open set and closes local rows that fell out
+// of it — catches closes the search-index lag hides — and refreshes every
+// open PR's mergeability and CI state, which change without the PR's
+// updatedAt moving and so are invisible to the incremental sync.
 func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) error {
 	open, err := client.OpenPRNumbers(owner, name, func(fetched, total int) {
 		cout.Verbosef("  <gray>reconcile: %d/%d open PR numbers</>\n", fetched, total)
@@ -204,15 +427,29 @@ func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) er
 		return err
 	}
 	var gone []int
+	statuses := make(map[int]db.PRStatus, len(open))
 	for number, state := range states {
-		if state == db.PROpen && !open[number] {
-			gone = append(gone, number)
+		if state != db.PROpen {
+			continue
 		}
+		st, stillOpen := open[number]
+		if !stillOpen {
+			gone = append(gone, number)
+			continue
+		}
+		statuses[number] = db.PRStatus{Mergeable: st.Mergeable, CheckState: st.CheckState}
 	}
 	if len(gone) > 0 {
 		cout.Printf("  <gray>reconcile: %d locally-open PRs are no longer open on github — marked closed</>\n", len(gone))
-		return d.MarkPRsClosed(gone)
+		if err := d.MarkPRsClosed(gone); err != nil {
+			return err
+		}
 	}
+	changed, err := d.UpdateOpenStatuses(statuses)
+	if err != nil {
+		return err
+	}
+	cout.Verbosef("  <gray>reconcile: mergeability and CI refreshed on %d open PRs, %d changed</>\n", len(statuses), changed)
 	return nil
 }
 
@@ -293,8 +530,10 @@ func bundles(nodes []gh.PRNode) []db.PRBundle {
 			paths = append(paths, fl.Path)
 		}
 		var lastCommit time.Time
+		var checkState string
 		if len(n.Commits.Nodes) > 0 {
 			lastCommit = n.Commits.Nodes[0].Commit.CommittedDate
+			checkState = n.Commits.Nodes[0].Commit.StatusCheckRollup.State
 		}
 
 		b := db.PRBundle{PR: db.PR{
@@ -305,7 +544,13 @@ func bundles(nodes []gh.PRNode) []db.PRBundle {
 			Additions: n.Additions, Deletions: n.Deletions, ChangedFiles: n.ChangedFiles, Files: paths,
 			CommentCount: n.Comments.TotalCount, ThumbsUp: n.Thumbs.TotalCount,
 			LastCommitAt: lastCommit, URL: n.URL, FetchedAt: db.Now(),
+			MergedBy: n.MergedBy.Login, Milestone: n.Milestone.Title, BaseRef: n.BaseRefName, HeadRef: n.HeadRefName,
+			CheckState: checkState,
 		}}
+		b.Events, b.Commits = timelineRows(n.Number, n.TimelineItems.Nodes)
+		if n.TimelineItems.PageInfo.HasNextPage {
+			b.PR.EventsCursor = n.TimelineItems.PageInfo.EndCursor
+		}
 
 		for _, c := range n.Comments.Nodes {
 			b.Comments = append(b.Comments, db.Comment{
@@ -344,7 +589,7 @@ func (f *FlagData) Cache(domain string) error {
 
 	switch domain {
 	case "":
-		for _, t := range []string{"prs", "comments", "reviews", "closes", "diffs", "ai_verdicts", "actions"} {
+		for _, t := range []string{"prs", "comments", "reviews", "closes", "events", "commits", "diffs", "ai_verdicts", "actions"} {
 			n, cerr := d.Count(t)
 			if cerr != nil {
 				return cerr
@@ -360,10 +605,10 @@ func (f *FlagData) Cache(domain string) error {
 		cout.Printf("<green>cleared</> the AI verdict cache — the next judged run rescores\n")
 		return nil
 	case "prs":
-		if _, err := d.Exec("DELETE FROM prs; DELETE FROM comments; DELETE FROM reviews; DELETE FROM closes; DELETE FROM diffs"); err != nil {
+		if _, err := d.Exec("DELETE FROM prs; DELETE FROM comments; DELETE FROM reviews; DELETE FROM closes; DELETE FROM events; DELETE FROM commits; DELETE FROM diffs"); err != nil {
 			return fmt.Errorf("clearing prs: %w", err)
 		}
-		for _, k := range []string{metaWalkCursor, metaWalkDone, metaLastSync} {
+		for _, k := range []string{metaWalkCursor, metaWalkDone, metaLastSync, metaBackfillSince, metaBackfillUntil, metaBackfillEnd} {
 			if err := d.DeleteMeta(k); err != nil {
 				return err
 			}
@@ -371,7 +616,7 @@ func (f *FlagData) Cache(domain string) error {
 		cout.Printf("<green>cleared</> the fetched PRs — run <cyan>prawn fetch</> to rebuild (actions are never touched)\n")
 		return nil
 	case "all":
-		if _, err := d.Exec("DELETE FROM prs; DELETE FROM comments; DELETE FROM reviews; DELETE FROM closes; DELETE FROM diffs; DELETE FROM ai_verdicts; DELETE FROM meta"); err != nil {
+		if _, err := d.Exec("DELETE FROM prs; DELETE FROM comments; DELETE FROM reviews; DELETE FROM closes; DELETE FROM events; DELETE FROM commits; DELETE FROM diffs; DELETE FROM ai_verdicts; DELETE FROM meta"); err != nil {
 			return fmt.Errorf("clearing caches: %w", err)
 		}
 		cout.Printf("<green>cleared</> every cache — run <cyan>prawn fetch</> to rebuild (actions are never touched)\n")

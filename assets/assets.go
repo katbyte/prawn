@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-//go:embed comments/*.md prompts/*.md reports/*.tmpl
+//go:embed comments/*.md prompts/*.md reports/*.tmpl reports/*.js
 var files embed.FS
 
 // CommentTemplate returns the close-comment template for a reason code.
@@ -48,6 +48,11 @@ func Prompt(name string) (string, error) {
 
 // ReportHTML returns the close-candidates HTML report template.
 func ReportHTML() string { return report("report.html.tmpl") }
+
+// ExploreHTML returns the explore page template; ExploreJS its script,
+// kept apart so the html templater never has to parse javascript.
+func ExploreHTML() string { return report("explore.html.tmpl") }
+func ExploreJS() string   { return report("explore.js") + "\n" + report("explore-trends.js") }
 
 // Styles returns the css partials the HTML reports include.
 func Styles() string { return report("styles.html.tmpl") }

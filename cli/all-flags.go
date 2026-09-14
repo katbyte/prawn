@@ -74,10 +74,20 @@ type FlagsAI struct {
 // flag. Only the running command's fields carry values; the rest stay zero
 // and unread. Unlike the root flags none of these are bound to env vars.
 type FlagsCommands struct {
-	FetchFull     bool        `mapstructure:"full"`
-	ReopenComment string      `mapstructure:"comment"`
-	SrcDir        string      `mapstructure:"src-dir"` // also PRAWN_SRC_DIR: the one command flag with an env var, so reports stay one command
-	Report        FlagsReport `mapstructure:",squash"`
+	FetchFull     bool         `mapstructure:"full"`
+	ReopenComment string       `mapstructure:"comment"`
+	SrcDir        string       `mapstructure:"src-dir"`   // also PRAWN_SRC_DIR: a command flag with an env var, so reports stay one command
+	Since         string       `mapstructure:"since"`     // also PRAWN_SINCE: the explore period's start, yyyy-mm-dd
+	ViewFrom      string       `mapstructure:"view-from"` // also PRAWN_VIEW_FROM: the period the explore page opens on
+	Report        FlagsReport  `mapstructure:",squash"`
+	Explore       FlagsExplore `mapstructure:",squash"`
+}
+
+// FlagsExplore configures prawn explore. WithAI and Limit are the report's
+// flags of the same names, read from FlagsReport.
+type FlagsExplore struct {
+	Out    string `mapstructure:"explore-out"` // the html file to write
+	Checks bool   `mapstructure:"checks"`      // run the close checks for the checks tab
 }
 
 // FlagsReport configures prawn close report.
@@ -175,6 +185,14 @@ func ConfigureFlags(root *cobra.Command) error {
 	if err := viper.BindEnv("src-dir", "PRAWN_SRC_DIR"); err != nil {
 		return fmt.Errorf("error binding 'src-dir' to env: %w", err)
 	}
+	// --since likewise: the period a repo is explored over is a setting, not a
+	// per-run choice, and fetch and explore must agree on it
+	if err := viper.BindEnv("since", "PRAWN_SINCE"); err != nil {
+		return fmt.Errorf("error binding 'since' to env: %w", err)
+	}
+	if err := viper.BindEnv("view-from", "PRAWN_VIEW_FROM"); err != nil {
+		return fmt.Errorf("error binding 'view-from' to env: %w", err)
+	}
 
 	viper.SetConfigName(".prawn")
 	viper.SetConfigType("env")
@@ -186,6 +204,20 @@ func ConfigureFlags(root *cobra.Command) error {
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := errors.AsType[viper.ConfigFileNotFoundError](err); !ok {
 			clog.Log.Errorf("Error reading config file: %v", err)
+		}
+	}
+	// the file is env-format and its keys are env var names (PRAWN_REPO=...),
+	// but the flags above are bound to those names as ENV vars, not as config
+	// keys — so export what the file holds, the real environment winning
+	for _, k := range viper.AllKeys() {
+		name := strings.ToUpper(k)
+		if !strings.HasPrefix(name, "PRAWN_") && name != "GITHUB_TOKEN" {
+			continue
+		}
+		if _, set := os.LookupEnv(name); !set {
+			if err := os.Setenv(name, viper.GetString(k)); err != nil {
+				return fmt.Errorf("exporting %s from the config file: %w", name, err)
+			}
 		}
 	}
 
@@ -295,4 +327,16 @@ func (f *FlagData) PRURL(number int) string {
 // IssueURL builds the web url for an issue in the wrangled repo.
 func (f *FlagData) IssueURL(number int) string {
 	return fmt.Sprintf("https://github.com/%s/issues/%d", f.GH.Repo, number)
+}
+
+// SinceTime parses --since / PRAWN_SINCE (yyyy-mm-dd), zero when unset.
+func (f *FlagData) SinceTime() (time.Time, error) {
+	if f.Cmd.Since == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse("2006-01-02", f.Cmd.Since)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("--since %q is not a yyyy-mm-dd date: %w", f.Cmd.Since, err)
+	}
+	return t.UTC(), nil
 }

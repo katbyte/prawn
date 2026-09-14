@@ -22,6 +22,9 @@ import (
 
 const endpoint = "https://api.github.com/graphql"
 
+// varQuery is the request field and search variable both named "query".
+const varQuery = "query"
+
 // ErrNotFound marks a 404 — a permanently missing thing, not a transient
 // failure, so callers can skip retries. Test with errors.Is.
 var ErrNotFound = errors.New("not found")
@@ -33,6 +36,9 @@ const requestThrottle = 2 * time.Second
 
 // secondaryLimitWait is the backoff when a secondary-limit 403 still gets through.
 const secondaryLimitWait = 90 * time.Second
+
+// gatewayWait is the pause before retrying a 502/504 from GitHub's gateway.
+const gatewayWait = 20 * time.Second
 
 type Client struct {
 	token       string
@@ -67,7 +73,7 @@ func repoVars(owner, name, cursor string) map[string]any {
 
 // searchVars builds the standard search-query(/cursor) variable map.
 func searchVars(query, cursor string) map[string]any {
-	v := map[string]any{"query": query}
+	v := map[string]any{varQuery: query}
 	if cursor != "" {
 		v["cursor"] = cursor
 	}
@@ -106,12 +112,12 @@ func (c *Client) DoTolerant(query string, variables map[string]any, out any) err
 }
 
 func (c *Client) do(query string, variables map[string]any, out any, tolerant bool) error {
-	payload, err := json.Marshal(map[string]any{"query": query, "variables": variables})
+	payload, err := json.Marshal(map[string]any{varQuery: query, "variables": variables})
 	if err != nil {
 		return fmt.Errorf("marshalling graphql request: %w", err)
 	}
 
-	const maxAttempts = 4
+	const maxAttempts = 7
 	for attempt := range maxAttempts {
 		c.throttle()
 
@@ -131,6 +137,16 @@ func (c *Client) do(query string, variables map[string]any, out any, tolerant bo
 			time.Sleep(wait)
 			continue
 		}
+		// a gateway 502/504 is GitHub timing out assembling the page — usually
+		// a heavy page under load; a retry after a pause tends to go through
+		if (status == http.StatusBadGateway || status == http.StatusGatewayTimeout) && attempt < maxAttempts-1 {
+			// the wait grows: a heavy page under load clears in a minute or two,
+			// not in twenty seconds
+			wait := gatewayWait * time.Duration(attempt+1)
+			clog.Log.Warnf("graphql gateway %d, sleeping %s (attempt %d/%d)", status, wait, attempt+1, maxAttempts)
+			time.Sleep(wait)
+			continue
+		}
 		if status != http.StatusOK {
 			return fmt.Errorf("graphql returned %d: %.400s", status, string(body))
 		}
@@ -140,6 +156,13 @@ func (c *Client) do(query string, variables map[string]any, out any, tolerant bo
 			Errors []graphqlError  `json:"errors"`
 		}
 		if err := json.Unmarshal(body, &envelope); err != nil {
+			// a truncated body is the connection dropping mid-response, not the
+			// query — retry it like a gateway error
+			if attempt < maxAttempts-1 {
+				clog.Log.Warnf("graphql response undecodable (%v), sleeping %s (attempt %d/%d)", err, gatewayWait, attempt+1, maxAttempts)
+				time.Sleep(gatewayWait)
+				continue
+			}
 			return fmt.Errorf("decoding graphql envelope: %w", err)
 		}
 		if len(envelope.Errors) > 0 {

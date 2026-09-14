@@ -83,7 +83,7 @@ title/body prose is the fallback for PRs whose diff GitHub will not render.
 export GITHUB_TOKEN=$(gh auth token)
 export PRAWN_AI_CMD=claude PRAWN_AI_MODEL=opus   # required by every --apply-with-ai mode (no default)
 
-prawn fetch            # every open PR + comments + reviews + files + linked issues + diff
+prawn fetch            # every open PR + comments + reviews + files + linked issues + timeline + diff
                        # -> prs.db (resumable; later runs sync incrementally and
                        # reconcile the open set — the only required setup step)
 
@@ -120,6 +120,16 @@ prawn close stale waiting --apply-with-ai           # only waiting-response PRs 
 prawn close duplicate similar --dry-run             # pairs nobody linked, preview only
 prawn label bug linked-issue --apply-with-ai-auto=0.9  # only issue-backed labels, above 0.90
 
+# the explore page: every PR open at any point in the period, one html file, no server
+export PRAWN_SINCE=2023-01-01                          # the period's start (fetch backfills to it)
+export PRAWN_GROUP_MEMBERS=katbyte,jackofallops         # named groups of logins, any number of them —
+export PRAWN_GROUP_PARTNERS=magodo,wodansson            # in the env or .prawn, never in the repo
+export PRAWN_MAINTAINERS=members                        # which group counts as maintainers (default)
+prawn fetch                      # with PRAWN_SINCE set: also every PR closed or merged since, timelines included
+prawn explore                    # -> report/explore.html: filter bar over data · trends · suggested · areas · people · checks
+prawn explore --with-ai          # the checks tab scored, as close report --with-ai
+prawn explore --checks=false     # skip the checks (no provider checkout needed)
+
 prawn cache                      # list the local db's caches and sizes
 prawn cache clear ai             # drop AI verdicts (or prs|all)
 ```
@@ -138,13 +148,82 @@ close in full thread context as a second safety net — a PR doing more than its
 linked issues cover, an author waiting on the maintainers, and same-files-but-
 different-fixes pairs all score low.
 
+## Explore
+
+`prawn explore` writes one self-contained page over every PR that was open at
+any point since `--since` / `PRAWN_SINCE` — the open set plus everything closed
+or merged since — with a global filter bar above six tabs, every tab a view
+of what the filter matches. The state of every control lives in the url, so a
+view is a link.
+
+The filter: period, state, group, author, service, kind of change (schema,
+code, tests, docs, vendor, ci, changelog — read off the changed files, and
+exclusive: docs means docs and nothing else), label, court, effort, and a query
+box — `author:x label:bug age>90 -kind:docs`, keys for everything the page
+derives (`court cd idle size rounds fr reviewer responder lastmaint check ai`
+and more; the page lists them).
+
+- **data** — every PR the filter matches, sorted by whose court they sit in
+  and how cheap they are to review (or by any column), with query presets:
+  needs first look, approved but unmerged, pushed after changes requested,
+  waiting over 30 days, small and idle, conflicted. The columns are yours:
+  drag a header to reorder, × removes it, **columns** adds any field
+  collected on a PR — the review roll (reviewed by, approved by, changes
+  requested by with `×requests ✎comments`, as [ghp-sync](https://github.com/katbyte/ghp-sync)
+  stamps them on a project), status, CI, dates, decision, mergeability,
+  milestone, waiting, resolve time, linked issues, checks. The column set
+  lives in the url, so saved views (the same save / download / upload /
+  paste / ai controls as trends) keep a table layout. A row opens into the
+  PR's life as a bar of its daily states, its numbers, and its full timeline.
+- **trends** — [tfpp](https://github.com/katbyte/tf-provider-profiler)'s
+  model: a tree of metrics over the filtered set (the backlog by state, court,
+  group, effort, and service; the flow of opened, merged, and closed; response
+  and merge times; review load per reviewer; waiting-response cycles; the
+  quality of each author group's PRs as the member work they needed — reviews,
+  review comments, and rounds per PR by the month opened — and that work as
+  load by the month it was left), presets
+  that add bundles, one panel per selection, panels that combine by dragging
+  one onto another (a second unit goes on the right axis), stack, split, and
+  a `% change` view. Release tags from the provider checkout are the markers.
+- **suggested** — the easy wins among the matching open PRs, by category:
+  approved but unmerged, docs and changelog only, tests and CI only,
+  dependency bumps, small fixes and single-service enhancements in the
+  maintainers' court, small re-reviews after the author pushed, small PRs
+  never answered, and likely closes from the checks. Each row says why it is
+  cheap, and every category is a `suggested:<name>` query on the data tab.
+  **by service** regroups the small PRs in the maintainers' court by the
+  service they touch, most first: read the service once, review them together.
+- **people** — authors matching the filter with merge rate (and its trend
+  over the last six months), time to merge, rounds, first response; reviewers
+  with their touches, approvals, changes requested, first responses, and
+  response time. Click a login to filter by it.
+- **areas** — services from the changed files' `internal/services/<name>`,
+  kinds of change, and labels, each with open count, share in the maintainers'
+  court, unanswered, effort, merge rate, and top authors and reviewers.
+- **checks** — every close candidate the checks see, restricted to the
+  filter; needs the provider checkout, `--with-ai` scores them.
+
+The stats come from each PR's timeline, replayed: **ball in court** is the
+author's under draft, the waiting-response label, or a changes-requested
+review nothing has been pushed since, and the maintainers' otherwise; **first
+response** is the first review, comment, or close by a maintainer other than
+the author; **effort** is a 1–5 estimate from the diff's lines, files, and
+services, discounted for docs- and vendor-only changes. Maintainers are the
+`PRAWN_MAINTAINERS` group (default `members`), or whoever GitHub marks
+member, owner, or collaborator when no group is set. Groups are
+`PRAWN_GROUP_<name>=login,login`, any number of them, from the environment or
+`.prawn` — never the repo.
+
 ## Config
 
 Flags, env vars, or a `.prawn` file (env format) in `$HOME` or `.`:
 `GITHUB_TOKEN`, `PRAWN_REPO`, `PRAWN_DB`, `PRAWN_KEEP_REACTIONS`,
 `PRAWN_NO_AUTO_FETCH` (never touch the network for freshness — run against the
 local db as-is), `PRAWN_SRC_DIR` (a local provider checkout, for `close
-resolved landed`, `close deprecated`, and the report), `PRAWN_AI` (`false`
+resolved landed`, `close deprecated`, the report, and the explore page's
+release markers and checks tab), `PRAWN_SINCE` (the explore period's start,
+`yyyy-mm-dd`; `fetch` backfills every PR closed or merged since it),
+`PRAWN_GROUP_<name>` and `PRAWN_MAINTAINERS` (see Explore), `PRAWN_AI` (`false`
 lists without scores), `PRAWN_AI_CMD`, `PRAWN_AI_MODEL`, `PRAWN_AI_TIMEOUT`
 (minutes per AI call), `PRAWN_AS`, `PRAWN_GH_THROTTLE` (gap between GraphQL
 requests, e.g. `500ms`), `PRAWN_LOG` (debug/trace HTTP dumps). AI calls shell

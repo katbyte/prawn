@@ -7,6 +7,7 @@ import (
 	"github.com/katbyte/go-kt/clog"
 	"github.com/katbyte/prawn/cli"
 	"github.com/katbyte/prawn/cli/close"
+	"github.com/katbyte/prawn/cli/explore"
 	"github.com/katbyte/prawn/cli/label"
 )
 
@@ -21,7 +22,7 @@ func main() {
 		clog.Log.Error(c.Sprintf("<red>prawn: building cmd</> %v", err))
 		os.Exit(1)
 	}
-	cmd.AddCommand(close.Command(), label.Command())
+	cmd.AddCommand(close.Command(), label.Command(), explore.Command())
 
 	if err := cmd.Execute(); err != nil {
 		clog.Log.Error(c.Sprintf("<red>prawn:</> %v", err))
