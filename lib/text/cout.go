@@ -2,7 +2,7 @@ package text
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/katbyte/go-kt/cout"
@@ -23,7 +23,7 @@ func PrintCounts(counts map[string]int) {
 	for k := range counts {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	for _, k := range keys {
 		cout.Printf("  %-28s <yellow>%d</>\n", k, counts[k])
 	}

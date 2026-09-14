@@ -6,6 +6,7 @@ package explore
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -246,7 +247,7 @@ func releases(srcDir string, since time.Time) ([]explore.Release, error) {
 		}
 		out = append(out, explore.Release{Tag: tag, Date: u})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	slices.SortFunc(out, func(a, b explore.Release) int { return cmp.Compare(a.Date, b.Date) })
 	return out, nil
 }
 
@@ -282,8 +283,7 @@ func write(path string, data *explore.Data) error {
 	}
 	defer func() { _ = out.Close() }()
 
-	pd := pageData{Repo: data.Repo, Since: data.Since, Count: len(data.PRs), DataJSON: template.JS(js), Script: template.JS(assets.ExploreJS())} //nolint:gosec // G203: see above
-	if err := tmpl.Execute(out, pd); err != nil {
+	if err := tmpl.Execute(out, pageData{Repo: data.Repo, Since: data.Since, Count: len(data.PRs), DataJSON: template.JS(js), Script: template.JS(assets.ExploreJS())}); err != nil { //nolint:gosec // G203: see above
 		return fmt.Errorf("rendering explore page: %w", err)
 	}
 	return nil

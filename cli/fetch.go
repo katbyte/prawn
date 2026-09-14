@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -57,7 +57,7 @@ func (f *FlagData) Fetch(full bool) error {
 		return err
 	}
 	defer func() { _ = d.Close() }()
-	return f.fetch(d, full)
+	return f.fetchInto(d, full)
 }
 
 // AutoFetch keeps a check honest: sync before scanning unless the local db is
@@ -78,10 +78,10 @@ func (f *FlagData) AutoFetch() error {
 			return nil
 		}
 	}
-	return f.fetch(d, false)
+	return f.fetchInto(d, false)
 }
 
-func (f *FlagData) fetch(d *db.DB, full bool) error {
+func (f *FlagData) fetchInto(d *db.DB, full bool) error {
 	owner, name, err := f.RepoOwnerName()
 	if err != nil {
 		return err
@@ -342,7 +342,7 @@ func (f *FlagData) backfillWindow(d *db.DB, client *gh.Client, owner, name strin
 // syncTimelines fetches the remaining timeline pages of every PR whose first
 // page (fetched with the PR) had more — long threads, mostly — one request
 // per page, saved as it goes.
-func (f *FlagData) syncTimelines(d *db.DB, client *gh.Client, owner, name string) error {
+func (*FlagData) syncTimelines(d *db.DB, client *gh.Client, owner, name string) error {
 	pending, err := d.IncompleteTimelines()
 	if err != nil {
 		return err
@@ -356,7 +356,7 @@ func (f *FlagData) syncTimelines(d *db.DB, client *gh.Client, owner, name string
 	for n := range pending {
 		numbers = append(numbers, n)
 	}
-	sort.Ints(numbers)
+	slices.Sort(numbers)
 	pages := 0
 	for i, n := range numbers {
 		cursor := pending[n]
@@ -414,7 +414,7 @@ func timelineRows(number int, nodes []json.RawMessage) ([]db.Event, []db.Commit)
 // of it — catches closes the search-index lag hides — and refreshes every
 // open PR's mergeability and CI state, which change without the PR's
 // updatedAt moving and so are invisible to the incremental sync.
-func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) error {
+func (*FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) error {
 	open, err := client.OpenPRNumbers(owner, name, func(fetched, total int) {
 		cout.Verbosef("  <gray>reconcile: %d/%d open PR numbers</>\n", fetched, total)
 	})

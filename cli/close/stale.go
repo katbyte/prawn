@@ -302,7 +302,7 @@ func (f *Flags) closeOneStale(d *db.DB, repo gh.Repo, fdg *staleFinding, v *pr.V
 }
 
 // renderStaleComment renders the close comment for the finding's class.
-func (f *Flags) renderStaleComment(fdg *staleFinding) (string, error) {
+func (*Flags) renderStaleComment(fdg *staleFinding) (string, error) {
 	tt, err := assets.CommentTemplate(templateStaleClose)
 	if err != nil {
 		return "", err
@@ -329,7 +329,7 @@ func (f *Flags) renderStaleComment(fdg *staleFinding) (string, error) {
 // staleJudgeItems renders one judge block per finding: the PR, its class, the
 // unanswered review or last word, and the thread digest so the AI can see who
 // the ball is actually with.
-func (f *Flags) staleJudgeItems(d *db.DB, findings []staleFinding) ([]pr.JudgeItem, error) {
+func (*Flags) staleJudgeItems(d *db.DB, findings []staleFinding) ([]pr.JudgeItem, error) {
 	items := make([]pr.JudgeItem, 0, len(findings))
 	for i := range findings {
 		fdg := &findings[i]
@@ -360,7 +360,7 @@ func (f *Flags) staleJudgeItems(d *db.DB, findings []staleFinding) ([]pr.JudgeIt
 
 // printStaleCard is one candidate: the PR, why it looks abandoned and for how
 // long, and the AI's score when judged.
-func (f *Flags) printStaleCard(fdg *staleFinding, pos, total int, v *pr.Verdict) {
+func (*Flags) printStaleCard(fdg *staleFinding, pos, total int, v *pr.Verdict) {
 	printCardHeader(fdg.pr, pos, total)
 	cout.Printf("      %s\n", authorLine(fdg.pr))
 	now := time.Now()

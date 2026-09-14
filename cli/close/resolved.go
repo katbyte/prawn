@@ -397,7 +397,7 @@ func issueList(closes []db.LinkedIssue) string {
 
 // landingRef names a landing for comments and evidence: the merged PR when
 // the squash subject carried one, else the short commit hash.
-func (f *Flags) landingRef(l *pr.Landing) string {
+func (*Flags) landingRef(l *pr.Landing) string {
 	if l.Commit.PR > 0 {
 		return fmt.Sprintf("#%d", l.Commit.PR)
 	}
@@ -443,7 +443,7 @@ func (f *Flags) resolvedJudgeItems(d *db.DB, findings []resolvedFinding) ([]pr.J
 		fmt.Fprintf(&b, "PR BODY:\n%s\n", text.TruncateRunes(pr.CleanBody(p.Body), resolvedBodyRunes))
 
 		if l := fdg.landed; l != nil {
-			fmt.Fprintf(&b, "EVIDENCE — the provider source already reflects this PR's change (it did not when the PR was opened):\n")
+			fmt.Fprint(&b, "EVIDENCE — the provider source already reflects this PR's change (it did not when the PR was opened):\n")
 			if len(l.Landed) > 0 {
 				fmt.Fprintf(&b, "- identifiers the PR's diff introduces that the source now holds: %s\n", strings.Join(l.Landed, ", "))
 			}
@@ -457,7 +457,7 @@ func (f *Flags) resolvedJudgeItems(d *db.DB, findings []resolvedFinding) ([]pr.J
 				fmt.Fprintf(&b, "- identifiers the PR's diff deletes that the source STILL holds: %s\n", strings.Join(l.Still, ", "))
 			}
 			if len(l.Missing) > 0 && len(l.Gone) > 0 {
-				fmt.Fprintf(&b, "  (deleted names gone but the PR's new names absent usually means the same change landed under different names — a rename done differently)\n")
+				fmt.Fprint(&b, "  (deleted names gone but the PR's new names absent usually means the same change landed under different names — a rename done differently)\n")
 			}
 			fmt.Fprintf(&b, "- introduced by commit %s on %s by %s: %q (%s, shipped in %s)\n",
 				l.Commit.Hash[:10], l.Commit.Date.Format("2006-01-02"), l.Commit.Author, text.OneLine(l.Commit.Subject),
@@ -465,7 +465,7 @@ func (f *Flags) resolvedJudgeItems(d *db.DB, findings []resolvedFinding) ([]pr.J
 		}
 		switch {
 		case len(fdg.closes) > 0:
-			fmt.Fprintf(&b, "EVIDENCE — every linked issue is closed:\n")
+			fmt.Fprint(&b, "EVIDENCE — every linked issue is closed:\n")
 			for _, l := range fdg.closes {
 				fmt.Fprintf(&b, "- #%d %q closed as %s (labels: %s)\n",
 					l.IssueNumber, text.OneLine(l.Title), text.OrDefault(l.StateReason, "unknown"), strings.Join(l.Labels, ", "))
@@ -506,7 +506,7 @@ func (f *Flags) resolvedJudgeItems(d *db.DB, findings []resolvedFinding) ([]pr.J
 			if bots > 0 {
 				fmt.Fprintf(&b, "; %d bot comments omitted", bots)
 			}
-			fmt.Fprintf(&b, "):\n")
+			fmt.Fprint(&b, "):\n")
 			for _, c := range comments {
 				if pr.Bot(c.Author) {
 					continue

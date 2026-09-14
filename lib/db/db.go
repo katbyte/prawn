@@ -268,7 +268,7 @@ func fromDBTime(s string) time.Time {
 	}
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		clog.Log.Debugf("unparseable timestamp %q in db", s)
+		clog.Log.Debugf("unparsable timestamp %q in db", s)
 		return time.Time{}
 	}
 	return t

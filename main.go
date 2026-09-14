@@ -1,3 +1,4 @@
+// Command prawn triages a repository's pull requests: close checks, labellers, and the explore page.
 package main
 
 import (

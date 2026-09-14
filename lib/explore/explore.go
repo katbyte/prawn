@@ -7,9 +7,10 @@
 package explore
 
 import (
+	"cmp"
 	"encoding/json"
 	"path"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -259,12 +260,12 @@ func Build(in Input, cfg Config) *Data {
 	for l := range maint {
 		d.Maintainers = append(d.Maintainers, l)
 	}
-	sort.Strings(d.Maintainers)
+	slices.Sort(d.Maintainers)
 	d.Partners = make([]string, 0, len(partners))
 	for l := range partners {
 		d.Partners = append(d.Partners, l)
 	}
-	sort.Strings(d.Partners)
+	slices.Sort(d.Partners)
 
 	services := map[string]bool{}
 	labels := map[string]bool{}
@@ -294,7 +295,7 @@ func sortedKeys[V any](m map[string]V) []string {
 	for k := range m {
 		out = append(out, k)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -352,7 +353,7 @@ func derive(p *db.PR, events []db.Event, commits []db.Commit, verdicts map[strin
 	}
 
 	// ---- the replay ----
-	sort.SliceStable(events, func(i, j int) bool { return events[i].CreatedAt.Before(events[j].CreatedAt) })
+	slices.SortStableFunc(events, func(a, b db.Event) int { return a.CreatedAt.Compare(b.CreatedAt) })
 
 	// did it start as a draft? the first draft-flip tells: a ready-for-review
 	// first means it opened draft; nothing at all means it is what it is now
@@ -613,11 +614,11 @@ func derive(p *db.PR, events []db.Event, commits []db.Commit, verdicts map[strin
 	for name, since := range wearing {
 		row.Spans = append(row.Spans, Span{Name: name, Start: since.Unix(), End: intervalEnd(row.State, end)})
 	}
-	sort.Slice(row.Spans, func(i, j int) bool {
-		if row.Spans[i].Start != row.Spans[j].Start {
-			return row.Spans[i].Start < row.Spans[j].Start
+	slices.SortFunc(row.Spans, func(a, b Span) int {
+		if c := cmp.Compare(a.Start, b.Start); c != 0 {
+			return c
 		}
-		return row.Spans[i].Name < row.Spans[j].Name
+		return strings.Compare(a.Name, b.Name)
 	})
 	if row.Spans == nil {
 		row.Spans = []Span{}
@@ -637,11 +638,11 @@ func derive(p *db.PR, events []db.Event, commits []db.Commit, verdicts map[strin
 	if row.Intervals == nil {
 		row.Intervals = []Interval{}
 	}
-	sort.Slice(row.Reviewers, func(i, j int) bool {
-		if reviewers[row.Reviewers[i]] != reviewers[row.Reviewers[j]] {
-			return reviewers[row.Reviewers[i]] > reviewers[row.Reviewers[j]]
+	slices.SortFunc(row.Reviewers, func(a, b string) int {
+		if reviewers[a] != reviewers[b] {
+			return cmp.Compare(reviewers[b], reviewers[a]) // most active first
 		}
-		return row.Reviewers[i] < row.Reviewers[j]
+		return strings.Compare(a, b)
 	})
 	row.Effort = effort(p, row.Services, row.Kinds)
 	return row
@@ -771,8 +772,7 @@ func areas(files []string) (services, kinds []string) {
 	for _, f := range files {
 		switch {
 		case strings.HasPrefix(f, "internal/services/"):
-			rest := strings.TrimPrefix(f, "internal/services/")
-			if name, _, ok := strings.Cut(rest, "/"); ok {
+			if name, _, ok := strings.Cut(strings.TrimPrefix(f, "internal/services/"), "/"); ok {
 				svc[name] = true
 			}
 			base := path.Base(f)

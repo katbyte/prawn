@@ -31,7 +31,7 @@ approved action.`,
 			return BindCommandFlags(cmd)
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
-			fmt.Printf("Run \"prawn help\" for more information about available prawn commands.\n")
+			fmt.Print("Run \"prawn help\" for more information about available prawn commands.\n")
 			return nil
 		},
 	}

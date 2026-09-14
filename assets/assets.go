@@ -7,7 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -33,7 +33,7 @@ func CommentTemplateNames() []string {
 	for _, e := range entries {
 		names = append(names, strings.TrimSuffix(e.Name(), ".md"))
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 

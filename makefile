@@ -1,45 +1,128 @@
+# recipes use bash for pipefail support (ubuntu's default sh is dash)
+SHELL := /bin/bash
+
 GIT_COMMIT=$(shell git describe --always --long --dirty 2>/dev/null || echo none)
 # the version every katbyte tool reports: the tag, then +commits@ghash from git describe (v0.5.0-17-gc26e2f3 -> v0.5.0+17@gc26e2f3),
 # -dirty when the tree is; an untagged repo counts from v0.0.0 in the same shape rather than falling back to go's pseudo-version
 GIT_VERSION=$(shell git describe --tags --dirty 2>/dev/null | sed 's/-\([0-9]*\)-g/+\1@g/' | grep . || \
 	echo "v0.0.0+$$(git rev-list --count HEAD 2>/dev/null || echo 0)@g$$(git rev-parse --short HEAD 2>/dev/null || echo none)$$(git diff --quiet 2>/dev/null || echo -dirty)")
-GOLANGCI_LINT_VERSION?=v2.12.2
 TEST_TIMEOUT?=15m
 LDFLAGS=-X github.com/katbyte/go-kt/version.GitCommit=${GIT_COMMIT} -X github.com/katbyte/go-kt/version.Version=${GIT_VERSION}
+
+# dev tool binaries are built into .tools/bin (gitignored) from the versions pinned in
+# .tools/go.mod - the single source of truth for make and CI; dependabot keeps them updated
+TOOLS_BIN=.tools/bin
+ACTIONLINT=$(TOOLS_BIN)/actionlint
+GOFUMPT=$(TOOLS_BIN)/gofumpt
+GOLANGCI_LINT=$(TOOLS_BIN)/golangci-lint
+
+# non-Go tools also live in .tools/bin at pinned versions, but the pins are here (dependabot
+# cannot bump them): shellcheck and typos are static binaries downloaded from their github releases,
+# yamllint is python installed into a repo-local venv. all rebuild when this makefile changes.
+SHELLCHECK_VERSION=v0.11.0
+TYPOS_VERSION=v1.50.1
+YAMLLINT_VERSION=1.38.0
+SHELLCHECK=$(TOOLS_BIN)/shellcheck
+TYPOS=$(TOOLS_BIN)/typos
+YAMLLINT=$(TOOLS_BIN)/yamllint
+
+# golangci-lint with the azproviderlint module plugin compiled in (.tools/.custom-gcl.yml);
+# lint runs use this binary, the plain go.mod one exists to bootstrap `golangci-lint custom`
+GOLANGCI_LINT_MODULES=$(TOOLS_BIN)/golangci-with-modules
+
+# one rule builds any Go tool: the import path comes from the tool directives in .tools/go.mod
+# (via go list tool), so the makefile never repeats it - add a tool there and a variable above
+$(TOOLS_BIN)/%: .tools/go.mod .tools/go.sum
+	@echo "==> building $* (version pinned in .tools/go.mod)..."
+	@cd .tools && go build -o bin/$* $$(go list tool | grep "/$*$$")
+
+# explicit rules take precedence over the pattern rule above for the non-Go tools
+$(GOLANGCI_LINT_MODULES): .tools/.custom-gcl.yml $(GOLANGCI_LINT)
+	@echo "==> building golangci-lint with plugins (versions pinned in .tools/.custom-gcl.yml)..."
+	@cd .tools && bin/golangci-lint custom
+
+$(SHELLCHECK): makefile
+	@echo "==> downloading shellcheck $(SHELLCHECK_VERSION)..."
+	@mkdir -p $(TOOLS_BIN)
+	@os=$$(uname | tr 'A-Z' 'a-z'); arch=$$(uname -m); [ "$$arch" = "arm64" ] && arch=aarch64; \
+		curl -sSfL "https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/shellcheck-$(SHELLCHECK_VERSION).$$os.$$arch.tar.xz" \
+		| tar -xJ -O shellcheck-$(SHELLCHECK_VERSION)/shellcheck > $@ && chmod +x $@
+
+$(TYPOS): makefile
+	@echo "==> downloading typos $(TYPOS_VERSION)..."
+	@mkdir -p $(TOOLS_BIN)
+	@case "$$(uname)" in Darwin) target=apple-darwin;; *) target=unknown-linux-musl;; esac; \
+		arch=$$(uname -m); [ "$$arch" = "arm64" ] && arch=aarch64; \
+		curl -sSfL "https://github.com/crate-ci/typos/releases/download/$(TYPOS_VERSION)/typos-$(TYPOS_VERSION)-$$arch-$$target.tar.gz" \
+		| tar -xz -O ./typos > $@ && chmod +x $@
+
+$(YAMLLINT): makefile
+	@command -v python3 >/dev/null || (echo "python3 is required to install yamllint (macOS: xcode CLT; Debian/Ubuntu: apt install python3-venv)" && exit 1)
+	@echo "==> installing yamllint $(YAMLLINT_VERSION) into .tools/venv..."
+	@mkdir -p $(TOOLS_BIN)
+	@python3 -m venv .tools/venv && .tools/venv/bin/pip install -q yamllint==$(YAMLLINT_VERSION) && ln -sf ../venv/bin/yamllint $@
 
 default: fmt build
 
 all: fmt build
 
-tools:
-	@echo "==> installing required tooling..."
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | \
-		sh -s -- -b $(shell go env GOPATH)/bin ${GOLANGCI_LINT_VERSION}
+help: ## Show this help
+	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make \033[36m<target>\033[0m\n"} /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-24s\033[0m%s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 
-fmt:
-	@echo "==> Fixing source code with gofmt..."
-	find . -name '*.go' | grep -v vendor | xargs gofmt -s -w
-	@echo "==> Fixing source code with gofumpt..."
-	find . -name '*.go' | grep -v vendor | xargs gofumpt -w
-	@echo "==> Fixing imports with golangci-lint (goimports)..."
-	golangci-lint fmt -E goimports ./...
-
-test: build
-	go test -race $$(go list ./... | grep -v vendor) -timeout ${TEST_TIMEOUT}
-
-build:
+##@ Build
+build: ## Compile prawn with version info from git
 	@echo "==> building..."
 	go build -o prawn -ldflags "${LDFLAGS}"
 
-lint:
+install: ## Install prawn into GOPATH/bin with version info from git
+	@echo "==> installing..."
+	go install -ldflags "${LDFLAGS}" .
+
+tools: $(ACTIONLINT) $(GOFUMPT) $(GOLANGCI_LINT) $(GOLANGCI_LINT_MODULES) $(SHELLCHECK) $(TYPOS) $(YAMLLINT) ## Install all pinned dev tools into .tools/bin
+
+##@ Formatting
+fmt: $(GOFUMPT) $(GOLANGCI_LINT) ## Fix Go formatting (gofmt, gofumpt, goimports)
+	@echo "==> Fixing source code with gofmt..."
+	find . -name '*.go' | grep -v vendor | xargs gofmt -s -w
+	@echo "==> Fixing source code with gofumpt..."
+	find . -name '*.go' | grep -v vendor | xargs $(GOFUMPT) -w
+	@echo "==> Fixing imports with golangci-lint (goimports)..."
+	$(GOLANGCI_LINT) fmt -E goimports ./...
+
+goimports: $(GOLANGCI_LINT) ## Fix imports with golangci-lint (goimports)
+	@echo "==> Fixing imports with golangci-lint (goimports)..."
+	$(GOLANGCI_LINT) fmt -E goimports ./...
+
+##@ Linting & Dependencies
+lint: $(GOLANGCI_LINT_MODULES) ## Check source code with the golangci linters (incl. azproviderlint)
 	@echo "==> Checking source code against linters..."
-	golangci-lint run ./...
+	$(GOLANGCI_LINT_MODULES) run ./...
 
-lint-fix:
+actionlint: $(ACTIONLINT) $(SHELLCHECK) ## Check GitHub workflows with actionlint (incl. shellcheck on run blocks)
+	@echo "==> Checking workflows with actionlint..."
+	@$(ACTIONLINT) -shellcheck=$(SHELLCHECK)
+
+lint-fix: $(GOLANGCI_LINT_MODULES) ## Fix source code with all golangci linters
 	@echo "==> Checking source code against linters (applying autofixes)..."
-	golangci-lint run --fix ./...
+	$(GOLANGCI_LINT_MODULES) run --fix ./...
 
-depscheck:
+yamllint: $(YAMLLINT) ## Check YAML files with yamllint (config in .yamllint.yml)
+	@echo "==> Checking YAML files with yamllint..."
+	@$(YAMLLINT) -s .
+
+shellcheck: $(SHELLCHECK) ## Check shell scripts with shellcheck
+	@echo "==> Checking shell scripts with shellcheck..."
+	@$(SHELLCHECK) scripts/*.sh
+
+typos: $(TYPOS) ## Check all files for spelling mistakes with typos (config in .typos.toml)
+	@echo "==> Checking for typos..."
+	@$(TYPOS)
+
+typos-fix: $(TYPOS) ## Fix spelling mistakes found by typos
+	@echo "==> Fixing typos..."
+	@$(TYPOS) --write-changes
+
+depscheck: ## Check that go.mod/go.sum and vendor/ are in sync
 	@echo "==> Checking source code with go mod tidy..."
 	@go mod tidy
 	@git diff --exit-code -- go.mod go.sum || \
@@ -48,11 +131,20 @@ depscheck:
 	@go mod vendor
 	@git diff --compact-summary --exit-code -- vendor || \
 		(echo; echo "Unexpected difference in vendor/ directory. Run 'go mod vendor' command or revert any go.mod/go.sum/vendor changes and commit."; exit 1)
+	@echo "==> Checking .tools/go.mod with go mod tidy..."
+	@cd .tools && go mod tidy
+	@git diff --exit-code -- .tools/go.mod .tools/go.sum || \
+		(echo; echo "Unexpected difference in .tools/go.mod/go.sum. Run 'cd .tools && go mod tidy' and commit."; exit 1)
+	@echo "==> Checking .tools/.custom-gcl.yml golangci-lint version matches .tools/go.mod..."
+	@modv=$$(cd .tools && go list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2); \
+		gclv=$$(grep '^version:' .tools/.custom-gcl.yml | awk '{print $$2}'); \
+		[ "$$modv" = "$$gclv" ] || \
+		(echo; echo "golangci-lint version mismatch: .tools/go.mod has $$modv but .tools/.custom-gcl.yml has $$gclv - update .custom-gcl.yml to match."; exit 1)
 
-install:
-	@echo "==> installing..."
-	go build -o $(shell go env GOPATH)/bin/prawn -ldflags "${LDFLAGS}"
+##@ Testing
+test: build ## Run the tests under the race detector
+	go test -race $$(go list ./... | grep -v vendor) -timeout ${TEST_TIMEOUT}
 
-check-all: build test lint depscheck
+check-all: build test lint actionlint yamllint shellcheck typos depscheck ## Run build + test + all linters + depscheck
 
-.PHONY: fmt build test lint lint-fix depscheck check-all install tools
+.PHONY: default all help fmt goimports build lint lint-fix actionlint yamllint shellcheck typos typos-fix depscheck check-all install tools test

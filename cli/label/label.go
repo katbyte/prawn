@@ -151,7 +151,7 @@ type labelCollection struct {
 
 // collectLabel walks every open PR lacking both category labels for evidence
 // of this one: a labelled linked issue, or a title reading like one.
-func (f *Flags) collectLabel(d *db.DB, label, link string) (*labelCollection, error) {
+func (*Flags) collectLabel(d *db.DB, label, link string) (*labelCollection, error) {
 	col := &labelCollection{counts: map[string]int{}}
 	prs, err := d.OpenPRs()
 	if err != nil {
@@ -313,7 +313,7 @@ func (f *Flags) labelPrompt(label string) (string, error) {
 
 // labelJudgeItems renders one judge block per finding: the PR, its class, and
 // the labelled linked issues.
-func (f *Flags) labelJudgeItems(findings []labelFinding) []pr.JudgeItem {
+func (*Flags) labelJudgeItems(findings []labelFinding) []pr.JudgeItem {
 	items := make([]pr.JudgeItem, 0, len(findings))
 	for i := range findings {
 		fdg := &findings[i]
@@ -334,7 +334,7 @@ func (f *Flags) labelJudgeItems(findings []labelFinding) []pr.JudgeItem {
 
 // printLabelCard is one candidate: the PR, the evidence for the label, and
 // the AI's score when judged.
-func (f *Flags) printLabelCard(label string, fdg *labelFinding, pos, total int, v *pr.Verdict) {
+func (*Flags) printLabelCard(label string, fdg *labelFinding, pos, total int, v *pr.Verdict) {
 	p := fdg.pr
 	cout.Printf("\n  <gray>%d/%d</> <cyan>#%d</> %s<bold>%s</> <darkGray>%s</>\n",
 		pos, total, p.Number, text.StateTag(p.State),

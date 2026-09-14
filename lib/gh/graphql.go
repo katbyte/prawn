@@ -56,7 +56,7 @@ func NewClient(token string) *Client {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
 			gap = d
 		} else {
-			clog.Log.Warnf("ignoring unparseable PRAWN_GH_THROTTLE %q", v)
+			clog.Log.Warnf("ignoring unparsable PRAWN_GH_THROTTLE %q", v)
 		}
 	}
 	return &Client{token: token, httpClient: chttp.NewHTTPClient("GraphQL"), throttleGap: gap}
@@ -99,7 +99,7 @@ func (c *Client) throttle() {
 // throttled, and rate-limit rejections are retried after a long backoff. Any
 // graphql-level error fails the call.
 func (c *Client) Do(query string, variables map[string]any, out any) error {
-	return c.do(query, variables, out, false)
+	return c.request(query, variables, out, false)
 }
 
 // DoTolerant is Do for queries whose individual nodes may legitimately fail —
@@ -108,10 +108,10 @@ func (c *Client) Do(query string, variables map[string]any, out any) error {
 // ignored and the partial data decoded — the affected nodes come back null;
 // anything else still fails.
 func (c *Client) DoTolerant(query string, variables map[string]any, out any) error {
-	return c.do(query, variables, out, true)
+	return c.request(query, variables, out, true)
 }
 
-func (c *Client) do(query string, variables map[string]any, out any, tolerant bool) error {
+func (c *Client) request(query string, variables map[string]any, out any, tolerant bool) error {
 	payload, err := json.Marshal(map[string]any{varQuery: query, "variables": variables})
 	if err != nil {
 		return fmt.Errorf("marshalling graphql request: %w", err)

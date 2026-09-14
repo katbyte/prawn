@@ -170,7 +170,7 @@ func saveBundle(tx *sql.Tx, b *PRBundle) error {
 		return fmt.Errorf("marshalling files for #%d: %w", p.Number, err)
 	}
 
-	_, err = tx.Exec(`
+	if _, err = tx.Exec(`
 		INSERT INTO prs (number, title, body, state, is_draft, author, author_association,
 			created_at, updated_at, closed_at, merged_at, labels, mergeable, review_decision,
 			additions, deletions, changed_files, files, comment_count, thumbs_up, last_commit_at, url, fetched_at,
@@ -191,8 +191,7 @@ func saveBundle(tx *sql.Tx, b *PRBundle) error {
 		toDBTime(p.CreatedAt), toDBTime(p.UpdatedAt), toDBTime(p.ClosedAt), toDBTime(p.MergedAt), string(labels),
 		p.Mergeable, p.ReviewDecision, p.Additions, p.Deletions, p.ChangedFiles, string(files),
 		p.CommentCount, p.ThumbsUp, toDBTime(p.LastCommitAt), p.URL, toDBTime(p.FetchedAt),
-		p.MergedBy, p.Milestone, p.BaseRef, p.HeadRef, p.EventsCursor, p.CheckState)
-	if err != nil {
+		p.MergedBy, p.Milestone, p.BaseRef, p.HeadRef, p.EventsCursor, p.CheckState); err != nil {
 		return fmt.Errorf("upserting PR #%d: %w", p.Number, err)
 	}
 
@@ -268,10 +267,10 @@ func scanPR(row interface{ Scan(...any) error }) (*PR, error) {
 	p.CreatedAt, p.UpdatedAt, p.ClosedAt, p.MergedAt = fromDBTime(created), fromDBTime(updated), fromDBTime(closed), fromDBTime(merged)
 	p.LastCommitAt, p.FetchedAt = fromDBTime(lastCommit), fromDBTime(fetched)
 	if err := json.Unmarshal([]byte(labels), &p.Labels); err != nil {
-		clog.Log.Debugf("unparseable labels for #%d: %v", p.Number, err)
+		clog.Log.Debugf("unparsable labels for #%d: %v", p.Number, err)
 	}
 	if err := json.Unmarshal([]byte(files), &p.Files); err != nil {
-		clog.Log.Debugf("unparseable files for #%d: %v", p.Number, err)
+		clog.Log.Debugf("unparsable files for #%d: %v", p.Number, err)
 	}
 	return &p, nil
 }
@@ -391,7 +390,7 @@ func (d *DB) ClosesFor(number int) ([]LinkedIssue, error) {
 			return nil, fmt.Errorf("scanning linked issue: %w", err)
 		}
 		if err := json.Unmarshal([]byte(labels), &l.Labels); err != nil {
-			clog.Log.Debugf("unparseable issue labels for #%d: %v", l.PRNumber, err)
+			clog.Log.Debugf("unparsable issue labels for #%d: %v", l.PRNumber, err)
 		}
 		links = append(links, l)
 	}
@@ -415,7 +414,7 @@ func (d *DB) AllCloses() (map[int][]LinkedIssue, error) {
 			return nil, fmt.Errorf("scanning linked issue: %w", err)
 		}
 		if err := json.Unmarshal([]byte(labels), &l.Labels); err != nil {
-			clog.Log.Debugf("unparseable issue labels for #%d: %v", l.PRNumber, err)
+			clog.Log.Debugf("unparsable issue labels for #%d: %v", l.PRNumber, err)
 		}
 		links[l.PRNumber] = append(links[l.PRNumber], l)
 	}

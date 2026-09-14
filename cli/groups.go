@@ -6,7 +6,7 @@ package cli
 
 import (
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -58,7 +58,7 @@ func LoadGroups() Groups {
 			logins = append(logins, l)
 		}
 		if len(logins) > 0 {
-			sort.Strings(logins)
+			slices.Sort(logins)
 			g[name] = logins
 		}
 	}
@@ -108,6 +108,6 @@ func (g Groups) Names() []string {
 	for n := range g {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }

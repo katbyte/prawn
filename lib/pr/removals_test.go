@@ -93,7 +93,7 @@ func TestLoadInventoryAzurerm(t *testing.T) {
 		t.Errorf("suspiciously few removals from a real checkout: %d", len(inv.Removals))
 	}
 	if !inv.Live["azurerm_resource_group"] {
-		t.Errorf("live set missing azurerm_resource_group")
+		t.Error("live set missing azurerm_resource_group")
 	}
 	if inv.CurrentMajor < 5 {
 		t.Errorf("current major %d < 5", inv.CurrentMajor)

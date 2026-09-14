@@ -533,7 +533,7 @@ func (f *Flags) renderDeprecatedComment(fdg *deprecatedFinding) (string, error) 
 // deprecatedJudgeItems renders one judge block per finding: the PR's substance
 // (body, files, thread digest) and every removed/deprecated thing it leans on,
 // so the AI can tell a moot change from an incidental mention.
-func (f *Flags) deprecatedJudgeItems(d *db.DB, findings []deprecatedFinding) ([]pr.JudgeItem, error) {
+func (*Flags) deprecatedJudgeItems(d *db.DB, findings []deprecatedFinding) ([]pr.JudgeItem, error) {
 	items := make([]pr.JudgeItem, 0, len(findings))
 	for i := range findings {
 		fdg := &findings[i]
@@ -655,7 +655,7 @@ func (f *Flags) printDeprecatedCard(fdg *deprecatedFinding, pos, total int, v *p
 			fmt.Fprintf(&b, " <gray>· use</> <cyan>%s</>", r.Successor)
 		}
 		if m.absent {
-			fmt.Fprintf(&b, " <gray>· absent from source</>")
+			fmt.Fprint(&b, " <gray>· absent from source</>")
 		}
 		if url := f.removalURL(r); url != "" {
 			fmt.Fprintf(&b, " <darkGray>%s</>", url)

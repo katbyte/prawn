@@ -594,10 +594,10 @@ function bindColumnPicker(cols) {
 }
 // drag a header onto another to move it before (left half) or after (right half)
 function bindColumnDrag(view, cols) {
-  const ths = [...view.querySelectorAll('th[draggable]')];
+  const heads = [...view.querySelectorAll('th[draggable]')];
   let dragging = null;
-  const clear = () => ths.forEach(t => t.classList.remove('dragging', 'before', 'after'));
-  for (const th of ths) {
+  const clear = () => heads.forEach(t => t.classList.remove('dragging', 'before', 'after'));
+  for (const th of heads) {
     th.addEventListener('dragstart', e => { dragging = th.dataset.sort; th.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-prawn-col', dragging); });
     th.addEventListener('dragend', () => { dragging = null; clear(); });
     th.addEventListener('dragover', e => {

@@ -344,7 +344,7 @@ func (f *Flags) closeOneDuplicate(d *db.DB, repo gh.Repo, fdg *duplicateFinding,
 }
 
 // renderDuplicateComment renders the close comment pointing at the survivor.
-func (f *Flags) renderDuplicateComment(fdg *duplicateFinding) (string, error) {
+func (*Flags) renderDuplicateComment(fdg *duplicateFinding) (string, error) {
 	tt, err := assets.CommentTemplate(templateDuplicateClose)
 	if err != nil {
 		return "", err
@@ -366,7 +366,7 @@ func (f *Flags) renderDuplicateComment(fdg *duplicateFinding) (string, error) {
 
 // duplicateJudgeItems renders one judge block per finding: the candidate, the
 // survivor, how they were paired, and the candidate's thread digest.
-func (f *Flags) duplicateJudgeItems(d *db.DB, findings []duplicateFinding) ([]pr.JudgeItem, error) {
+func (*Flags) duplicateJudgeItems(d *db.DB, findings []duplicateFinding) ([]pr.JudgeItem, error) {
 	items := make([]pr.JudgeItem, 0, len(findings))
 	for i := range findings {
 		fdg := &findings[i]
@@ -376,7 +376,7 @@ func (f *Flags) duplicateJudgeItems(d *db.DB, findings []duplicateFinding) ([]pr
 		if fdg.viaIssue > 0 {
 			fmt.Fprintf(&b, "PAIRED VIA: both close issue #%d\n", fdg.viaIssue)
 		} else {
-			fmt.Fprintf(&b, "PAIRED VIA: near-identical titles\n")
+			fmt.Fprint(&b, "PAIRED VIA: near-identical titles\n")
 		}
 		t := fdg.target
 		fmt.Fprintf(&b, "THE SURVIVOR — PR #%d: %s\n", t.Number, text.OneLine(t.Title))
@@ -396,7 +396,7 @@ func (f *Flags) duplicateJudgeItems(d *db.DB, findings []duplicateFinding) ([]pr
 
 // printDuplicateCard is one candidate: the PR, the survivor it would close
 // towards, and the AI's score when judged.
-func (f *Flags) printDuplicateCard(fdg *duplicateFinding, pos, total int, v *pr.Verdict) {
+func (*Flags) printDuplicateCard(fdg *duplicateFinding, pos, total int, v *pr.Verdict) {
 	printCardHeader(fdg.pr, pos, total)
 	cout.Printf("      %s\n", authorLine(fdg.pr))
 	via := "<gray>(near-identical titles)</>"

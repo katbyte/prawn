@@ -272,11 +272,11 @@ func mineDeprecationBullet(bullet, resource, version string, major int) []Remova
 		}
 	}
 	if before == bullet { // no successor phrasing: only trust explicit "deprecate the `x`" wording
-		if _, a, found := strings.Cut(lower, "deprecate"); found {
-			before = a[:min(len(a), 120)]
-		} else {
+		_, a, found := strings.Cut(lower, "deprecate")
+		if !found {
 			return out
 		}
+		before = a[:min(len(a), 120)]
 	}
 	for _, m := range reBacktick.FindAllStringSubmatch(before, -1) {
 		if !propertyToken(m[1]) {

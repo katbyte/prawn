@@ -41,7 +41,7 @@ func (f *FlagData) JudgeBlocksBatch(d *db.DB, pass, promptText string, batch int
 }
 
 // PreparePrompt loads a prompt template by name.
-func (f *FlagData) PreparePrompt(name string) (string, error) {
+func (*FlagData) PreparePrompt(name string) (string, error) {
 	return assets.Prompt(name)
 }
 

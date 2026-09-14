@@ -343,8 +343,7 @@ func (h *History) Landing(p *db.PR, diff []FileDiff) (*Landing, error) {
 		}
 		commits = slices.DeleteFunc(commits, func(c Commit) bool { return c.PR == p.Number || Bot(c.Author) })
 		if len(commits) > 0 && (l.Commit == nil || commits[0].Date.Before(l.Commit.Date)) {
-			c := commits[0]
-			l.Commit = &c
+			l.Commit = new(commits[0])
 		}
 	}
 	if l.Commit == nil {
