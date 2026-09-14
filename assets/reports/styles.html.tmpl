@@ -1,0 +1,81 @@
+{{ define "styles" }}
+<script>document.documentElement.dataset.theme = localStorage.getItem('prawn-theme') || 'dark';</script>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1f2328; --dim:#59636e; --line:#d1d9e0;
+          --ok:#1a7f37; --mid:#9a6700; --warn:#bc4c00; --bad:#cf222e; --ver:#8250df; --accent:#0969da;
+          --trunc-bg:#fff8c5; --trunc-line:#d4a72c66; }
+  :root[data-theme="dark"] { --bg:#0d1117; --card:#161b22; --ink:#e6edf3; --dim:#8d96a0; --line:#30363d;
+          --ok:#3fb950; --mid:#d29922; --warn:#db6d28; --bad:#f85149; --ver:#a371f7; --accent:#4493f8;
+          --trunc-bg:#3b2e12; --trunc-line:#9e6a03; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { padding:24px 32px; background:var(--card); border-bottom:1px solid var(--line);
+           display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  header h1 { margin:0 0 4px; font-size:20px; }
+  header p  { margin:0; color:var(--dim); }
+
+  /* dark-mode toggle: the prawn swims to the moon */
+  .theme { position:relative; flex:none; width:64px; height:30px; border-radius:999px;
+           border:1px solid var(--line); background:var(--bg); cursor:pointer; padding:0; }
+  .theme span { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none; }
+  .theme .sun  { left:7px;  font-size:13px; }
+  .theme .moon { right:7px; font-size:13px; }
+  .theme .prawn { left:5px; font-size:18px; transition:transform .25s ease; }
+  :root[data-theme="dark"] .theme .prawn { transform:translate(30px, -50%); }
+  main { max-width:1100px; margin:0 auto; padding:24px 32px 80px; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .count { color:var(--dim); font-weight:400; }
+
+  /* the checks: one card per section up top, linking down into the report */
+  .toc { display:grid; gap:12px; margin-bottom:32px; }
+  .toc a.lens { display:block; background:var(--card); border:1px solid var(--line); border-radius:8px;
+                padding:14px 18px; color:var(--ink); }
+  .toc a.lens:hover { text-decoration:none; border-color:var(--accent); }
+  .toc h2 { margin:0 0 2px; font-size:16px; }
+  .toc h2 .n { color:var(--accent); }
+  .toc .q { margin:0 0 6px; font-weight:600; color:var(--mid); font-style:italic; }
+  .toc p { margin:0 0 6px; color:var(--dim); font-size:14px; }
+
+  .pill { display:inline-block; font-size:12px; font-weight:600; padding:1px 10px; border-radius:999px;
+          border:1px solid var(--line); background:var(--bg); margin-right:6px; }
+  .pill .c { font-weight:400; color:var(--dim); }
+
+  section { margin-bottom:36px; }
+  section > h2 { font-size:18px; margin:0 0 2px; }
+  section > h2 .n { color:var(--accent); }
+  section .q { margin:0 0 8px; font-weight:600; color:var(--mid); font-style:italic; }
+  section .desc { margin:0 0 6px; color:var(--dim); font-size:14px; max-width:80ch; }
+  section .note { margin:0 0 6px; color:var(--dim); font-size:13px; }
+  section .cmd { margin:0 0 12px; font-size:13px; color:var(--dim); }
+  section .cmd code { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:1px 6px; }
+  .trunc { background:var(--trunc-bg); border:1px solid var(--trunc-line); border-radius:6px; padding:6px 12px;
+           font-size:13px; margin-bottom:12px; display:inline-block; }
+
+  .items { background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  .item { border-top:1px solid var(--line); padding:12px 16px; }
+  .item:first-child { border-top:none; }
+  .item h3 { margin:0 0 2px; font-size:15px; font-weight:600; }
+  .meta { color:var(--dim); font-size:13px; margin-bottom:4px; }
+  .ev { font-size:13px; margin:2px 0; }
+  .ai { font-size:13px; margin-top:6px; }
+  .ai .score { font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .ok    { color:var(--ok);   font-weight:600; }
+  .mid   { color:var(--mid);  font-weight:600; }
+  .warn  { color:var(--warn); font-weight:600; }
+  .bad   { color:var(--bad);  font-weight:600; }
+  .ver   { color:var(--ver);  font-weight:600; }
+  .dim   { color:var(--dim); }
+  .quote { color:var(--dim); font-style:italic; }
+  .top { display:block; margin-top:8px; font-size:13px; }
+</style>
+{{ end }}
+
+{{ define "theme-toggle" }}
+<button class="theme" type="button" aria-label="toggle dark mode" title="toggle dark mode"
+        onclick="var h=document.documentElement,t=h.dataset.theme==='dark'?'light':'dark';h.dataset.theme=t;localStorage.setItem('prawn-theme',t)">
+  <span class="sun">☀️</span><span class="moon">🌙</span><span class="prawn">🦐</span>
+</button>
+{{ end }}

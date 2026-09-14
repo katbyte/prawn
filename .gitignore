@@ -1,0 +1,8 @@
+/prawn
+*.db
+*.db-shm
+*.db-wal
+/report/
+.prawn
+.DS_Store
+.idea/
