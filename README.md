@@ -77,6 +77,7 @@ export PRAWN_GROUP_MEMBERS=katbyte,jackofallops   # author groups, any number of
 export PRAWN_GROUP_PARTNERS=magodo,wodansson
 prawn fetch
 prawn explore                     # -> report/explore.html
+prawn explore --serve 8765        # ...and serve it, for other machines on the network
 ```
 
 One self-contained page over every PR open at any point in the period, with a filter bar over six tabs:

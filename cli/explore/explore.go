@@ -59,6 +59,7 @@ checkout (--src-dir / PRAWN_SRC_DIR) and is skipped with a note without it; --wi
 	c.Flags().Bool("checks", true, "run the close checks for the checks tab (needs --src-dir)")
 	c.Flags().Bool("with-ai", false, "AI-score every check candidate, as prawn close report --with-ai does (cached verdicts are reused)")
 	c.Flags().Int("limit", 0, "cap candidates per check when scoring, for cheap test runs (0 = all)")
+	c.Flags().String("serve", "", "after writing, serve the page on this address until ctrl-c (a port like 8765, or host:port) so other machines on the network can open it")
 	return c
 }
 
@@ -183,6 +184,9 @@ func run(f *cli.FlagData) error {
 	if abs, aerr := filepath.Abs(out); aerr == nil {
 		cout.Printf("<gray>open:</> <cyan>file://%s</>\n", abs)
 	}
+	if f.Cmd.Explore.Serve != "" {
+		return serve(out, f.Cmd.Explore.Serve)
+	}
 	return nil
 }
 
@@ -277,14 +281,26 @@ func write(path string, data *explore.Data) error {
 	if err != nil {
 		return fmt.Errorf("parsing explore template: %w", err)
 	}
-	out, err := os.Create(path) //nolint:gosec // G304: user-chosen output path is the point
+	// rendered beside the page under a name of its own and swapped in whole,
+	// so a page being served (--serve, or the container's cron refresh) is
+	// never read half-written, and two writers never share a draft
+	out, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", path, err)
 	}
-	defer func() { _ = out.Close() }()
-
+	tmp := out.Name()
 	if err := tmpl.Execute(out, pageData{Repo: data.Repo, Since: data.Since, Count: len(data.PRs), DataJSON: template.JS(js), Script: template.JS(assets.ExploreJS())}); err != nil { //nolint:gosec // G203: see above
+		_ = out.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("rendering explore page: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("replacing %s: %w", path, err)
 	}
 	return nil
 }

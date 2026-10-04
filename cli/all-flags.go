@@ -88,6 +88,7 @@ type FlagsCommands struct {
 type FlagsExplore struct {
 	Out    string `mapstructure:"explore-out"` // the html file to write
 	Checks bool   `mapstructure:"checks"`      // run the close checks for the checks tab
+	Serve  string `mapstructure:"serve"`       // "" writes and exits; a port or host:port serves the page until interrupted
 }
 
 // FlagsReport configures prawn close report.
