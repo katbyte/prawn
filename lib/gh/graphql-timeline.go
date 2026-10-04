@@ -203,7 +203,9 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
 }`
 
 // PRTimeline fetches one further page of a PR's timeline from cursor — the
-// follow-up for PRs whose first page (fetched with the PR) had more.
+// follow-up for PRs whose first page (fetched with the PR) had more. Tolerant
+// like that first page: a team the token can't read (a review request to
+// one needs org access) nulls the one node rather than failing the fetch.
 func (c *Client) PRTimeline(owner, name string, number int, cursor string) (*TimelinePage, RateLimit, error) {
 	vars := repoVars(owner, name, cursor)
 	vars["number"] = number
@@ -216,7 +218,7 @@ func (c *Client) PRTimeline(owner, name string, number int, cursor string) (*Tim
 			} `json:"pullRequest"`
 		} `json:"repository"`
 	}
-	if err := c.Do(prTimelineQuery, vars, &resp); err != nil {
+	if err := c.DoTolerant(prTimelineQuery, vars, &resp); err != nil {
 		return nil, RateLimit{}, fmt.Errorf("fetching timeline page for #%d: %w", number, err)
 	}
 	return &resp.Repository.PullRequest.TimelineItems, resp.RateLimit, nil

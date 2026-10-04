@@ -77,18 +77,34 @@ export PRAWN_GROUP_MEMBERS=katbyte,jackofallops   # author groups, any number of
 export PRAWN_GROUP_PARTNERS=magodo,wodansson
 prawn fetch
 prawn explore                     # -> report/explore.html
+prawn explore --serve 8765        # ...and serve it, for other machines on the network
 ```
 
-One self-contained page over every PR open at any point in the period, with a filter bar over six tabs:
+One self-contained page over every PR open at any point in the period, with a filter bar, and six tabs picked from the dropdown in the header:
 
-- **data** — the matching PRs as a table; pick, reorder, and sort the columns, open a row for the PR's timeline
+- **prs** — the matching PRs as a table; pick, reorder, and sort the columns, **group by** suggested category, kind, service, court, status, ci, author group, effort, or author to tackle alike PRs together; open a row for the PR's timeline
 - **trends** — metrics over time: backlog, flow, review status, times, review load, and quality by author group
 - **suggested** — easy wins by category (docs only, approved but unmerged, small and unanswered, …) or by service
 - **people** — authors and reviewers
-- **areas** — services, kinds of change, labels
+- **services** — services, kinds of change, labels
 - **checks** — the close candidates, restricted to the filter
 
 Every control lives in the url, so a view is a link, and views can be saved, downloaded, and pasted.
+
+## Docker
+
+A container that keeps the explore page fresh and serves it: `prawn explore --serve` runs on start, and
+a cron job inside refreshes the page on a schedule (`EXPLORE_CRON`, set in `docker-compose.yml`).
+
+```bash
+# .prawn holds GITHUB_TOKEN, PRAWN_REPO, PRAWN_SINCE, PRAWN_GROUP_<name>... — the same file the cli reads
+make docker            # or `docker compose pull` once a release has published the image
+docker compose up -d   # -> http://localhost:8765/ ; the db and the page live in ./data
+```
+
+The first start of an empty `./data` walks the whole repo before the page appears. The page is open to
+anyone who can reach the port, so put a login in front of it (oauth2-proxy, Cloudflare Access) before
+exposing it beyond the local network.
 
 ## Configuration
 

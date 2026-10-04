@@ -1,0 +1,20 @@
+services:
+  prawn:
+    # published on release; `docker compose pull` picks up a new build of this tag. `make docker`
+    # builds and tags the same name locally, for running from a checkout
+    image: ghcr.io/katbyte/prawn:latest
+    container_name: prawn
+    restart: unless-stopped
+    ports:
+      - "8765:8765" # the page is open to anyone who can reach this port: put a login in front of it
+    # the same env-format file the cli reads: GITHUB_TOKEN, PRAWN_REPO, PRAWN_SINCE, PRAWN_GROUP_<name>,
+    # PRAWN_MAINTAINERS...; gitignored, so the token never lands in this file
+    env_file: .prawn
+    environment:
+      - "TZ=America/Vancouver"
+      - "EXPLORE_CRON=30 0,3,6,9,12,15,18,21 * * *" # half an hour after ghp-sync's stamps land
+      - "PORT=8765"
+    volumes:
+      - ./data:/data # prs.db and report/explore.html
+      # a provider checkout gives the release markers and the checks tab; set PRAWN_SRC_DIR=/src in .prawn
+      # - /path/to/terraform-provider-azurerm:/src:ro
