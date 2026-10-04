@@ -91,6 +91,21 @@ One self-contained page over every PR open at any point in the period, with a fi
 
 Every control lives in the url, so a view is a link, and views can be saved, downloaded, and pasted.
 
+## Docker
+
+A container that keeps the explore page fresh and serves it: `prawn explore --serve` runs on start, and
+a cron job inside refreshes the page on a schedule (`EXPLORE_CRON`, set in `docker-compose.yml`).
+
+```bash
+# .prawn holds GITHUB_TOKEN, PRAWN_REPO, PRAWN_SINCE, PRAWN_GROUP_<name>... — the same file the cli reads
+make docker            # or `docker compose pull` once a release has published the image
+docker compose up -d   # -> http://localhost:8765/ ; the db and the page live in ./data
+```
+
+The first start of an empty `./data` walks the whole repo before the page appears. The page is open to
+anyone who can reach the port, so put a login in front of it (oauth2-proxy, Cloudflare Access) before
+exposing it beyond the local network.
+
 ## Configuration
 
 All options can be passed as command-line flags, environment variables, or via a `.prawn` file (env format)

@@ -89,6 +89,10 @@ build: ## Compile prawn with version info from git
 	@echo "==> building..."
 	go build -o prawn -ldflags "${LDFLAGS}"
 
+docker: ## Build the prawn docker image, tagged as the published name so `docker compose up` runs it
+	docker build --tag prawn --tag ghcr.io/katbyte/prawn:latest --build-arg GO_VERSION=$(shell cat .go-version) \
+		--build-arg VERSION=${GIT_VERSION} --build-arg GIT_COMMIT=${GIT_COMMIT} .
+
 install: ## Install prawn into GOPATH/bin with version info from git
 	@echo "==> installing..."
 	go install -ldflags "${LDFLAGS}" .
@@ -166,4 +170,4 @@ test: build ## Run the tests under the race detector
 
 check-all: build test lint actionlint yamllint shellcheck typos depscheck ## Run build + test + all linters + depscheck
 
-.PHONY: default all help fmt goimports build lint lint-fix actionlint yamllint shellcheck typos typos-fix zizmor depscheck check-all install tools test
+.PHONY: default all help fmt goimports build docker lint lint-fix actionlint yamllint shellcheck typos typos-fix zizmor depscheck check-all install tools test

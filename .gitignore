@@ -3,6 +3,7 @@
 *.db-shm
 *.db-wal
 /report/
+/data/
 .prawn
 .DS_Store
 .idea/
