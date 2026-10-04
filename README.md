@@ -80,13 +80,13 @@ prawn explore                     # -> report/explore.html
 prawn explore --serve 8765        # ...and serve it, for other machines on the network
 ```
 
-One self-contained page over every PR open at any point in the period, with a filter bar over six tabs:
+One self-contained page over every PR open at any point in the period, with a filter bar, and six tabs picked from the dropdown in the header:
 
-- **data** — the matching PRs as a table; pick, reorder, and sort the columns, open a row for the PR's timeline
+- **prs** — the matching PRs as a table; pick, reorder, and sort the columns, **group by** suggested category, kind, service, court, status, ci, author group, effort, or author to tackle alike PRs together; open a row for the PR's timeline
 - **trends** — metrics over time: backlog, flow, review status, times, review load, and quality by author group
 - **suggested** — easy wins by category (docs only, approved but unmerged, small and unanswered, …) or by service
 - **people** — authors and reviewers
-- **areas** — services, kinds of change, labels
+- **services** — services, kinds of change, labels
 - **checks** — the close candidates, restricted to the filter
 
 Every control lives in the url, so a view is a link, and views can be saved, downloaded, and pasted.

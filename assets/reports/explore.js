@@ -53,7 +53,7 @@ for (const c of (D.checks || [])) { const p = BY_N.get(c.n); if (p) p.checks.pus
 for (const p of D.prs) p.checkNames = p.checks.map(c => c.check).join(',');
 
 // ---- state: everything the url hash carries ----
-const DEFAULTS = { tab: 'data', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', q: '', sort: 'priority', dir: '', dc: '', sg: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
+const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'priority', gb: '', dir: '', dc: '', sg: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
 const S = { ...DEFAULTS };
 // the state filter's default depends on the tab: open PRs everywhere, every state on trends — until it is set explicitly
 const stateFilter = () => S.st ?? (S.tab === 'trends' ? '' : 'open');
@@ -142,6 +142,7 @@ function applyFilter() {
     if (kinds && !(p.k.length && p.k.every(k => kinds.includes(k)))) return false; // only those kinds, nothing else
     if (labels && !labels.some(l => p.l.some(x => x.toLowerCase() === l || x.toLowerCase().startsWith(l)))) return false;
     if (S.ct && p.ct !== S.ct) return false;
+    if (S.dr && !p.d) return false; // drafts only
     if (p.ef < efLo || p.ef > efHi) return false;
     for (const t of terms) if (matchTerm(p, t) === !!t.neg) return false;
     return true;
@@ -160,7 +161,7 @@ function renderFilters() {
   el.innerHTML = `
     <label>from<input type="date" id="f-from" value="${esc(S.from)}"></label>
     <label>to<input type="date" id="f-to" value="${esc(S.to)}"></label>
-    <label>state${segMulti('f-st', ['open', 'merged', 'closed'], stateFilter(), STATE_MC)}</label>
+    <label>state<div class="row">${segMulti('f-st', ['open', 'merged', 'closed'], stateFilter(), STATE_MC)}<div class="seg multi apart" id="f-dr" title="on: only drafts"><button data-v="yes" class="${S.dr ? 'on' : ''}" style="--mc:${STATE_COLORS[0]}"><i></i>draft</button></div></div></label>
     <label>group<select id="f-g">${opt('', 'any', S.g)}${GROUP_NAMES.map(g => opt(g, g, S.g)).join('')}${opt('community', 'community', S.g)}</select></label>
     <div class="fl">author${picker('f-a', 'a', countBy(p => [p.a]), 'any author')}</div>
     <div class="fl">service${picker('f-svc', 'svc', countBy(p => p.sv), 'any service')}</div>
@@ -182,7 +183,8 @@ function renderFilters() {
     set(key, (cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]).join(','));
   });
   togglePills('#f-st', 'st');
-  $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'q']) S[k] = DEFAULTS[k]; S.st = ''; update(true); });
+  $('#f-dr').addEventListener('click', () => set('dr', S.dr ? '' : 'yes'));
+  $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q']) S[k] = DEFAULTS[k]; S.st = ''; update(true); });
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
     keys: <code>author group svc kind only label court state status effort age idle size files rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind:docs</code> touches docs, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, none).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
@@ -190,7 +192,7 @@ function renderFilters() {
 
 // the toggle buttons and pickers reflect the state after every change, without rebuilding the bar (which would drop focus)
 function syncFilterButtons() {
-  for (const [id, key] of [['#f-st', 'st']]) {
+  for (const [id, key] of [['#f-st', 'st'], ['#f-dr', 'dr']]) {
     const val = key === 'st' ? stateFilter() : S[key];
     const on = val ? val.split(',') : [];
     document.querySelectorAll(id + ' button').forEach(b => b.classList.toggle('on', on.includes(b.dataset.v)));
@@ -227,13 +229,14 @@ function bindPickers() {
 }
 
 // ---- tabs ----
-const TABS = [['data', 'data'], ['trends', 'trends'], ['suggested', 'suggested'], ['areas', 'areas'], ['people', 'people'], ['checks', 'checks']];
+const TABS = [['prs', 'prs'], ['trends', 'trends'], ['suggested', 'suggested'], ['services', 'services'], ['people', 'people'], ['checks', 'checks']];
 function renderTabs() {
-  const counts = { data: M.length, trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, areas: new Set(M.flatMap(p => p.sv)).size, checks: M.reduce((n, p) => n + p.checks.length, 0) };
-  const c = $('#controls');
-  c.innerHTML = `<span class="seg" id="tabs">${TABS.map(([id, label]) => `<button data-tab="${id}" class="${S.tab === id ? 'on' : ''}">${label}<span class="n">${fmtNum(counts[id])}</span></button>`).join('')}</span><span id="tabctl" style="display:contents"></span>`;
-  $('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) set('tab', b.dataset.tab); });
+  const counts = { prs: M.length, trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: M.reduce((n, p) => n + p.checks.length, 0) };
+  // the tab is the header's dropdown, where the page's name was; the controls row keeps the tab's own controls
+  $('#tabSel').innerHTML = TABS.map(([id, label]) => `<option value="${id}"${S.tab === id ? ' selected' : ''}>${label} · ${fmtNum(counts[id])}</option>`).join('');
+  $('#controls').innerHTML = `<span id="tabctl" style="display:contents"></span>`;
 }
+$('#tabSel').addEventListener('change', e => set('tab', e.target.value));
 // per-tab controls slot in beside the tabs
 const tabControls = html => { $('#tabctl').innerHTML = html; };
 
@@ -535,20 +538,49 @@ function colSorter(k) {
   return (a, b) => { const x = c.v(a), y = c.v(b); const r = x == null || y == null ? cmp(x, y) : c.hi ? cmp(y, x) : cmp(x, y); return r || SORT_PRIORITY(a, b); };
 }
 const VIEWS = [
-  ['needs first look', 'state:open fr:none -draft:yes'],
-  ['approved, unmerged', 'state:open approved:yes'],
+  ['first look', 'state:open fr:none -draft:yes'],
+  ['approved', 'state:open approved:yes'],
   ['pushed after changes', 'state:open court:maintainer rounds>0'],
-  ['waiting > 30d', 'state:open label:waiting-response cd>30'],
-  ['small & idle', 'state:open effort<3 idle>60'],
+  ['>30d', 'state:open label:waiting-response cd>30'],
+  ['small/idle', 'state:open effort<3 idle>60'],
   ['conflicted', 'state:open mergeable:conflicting'],
+  ['ci failing', 'state:open ci:failing'],
   ['big & old', 'state:open effort>3 age>180'],
   ['maintainer court > 14d', 'state:open court:maintainer cd>14'],
 ];
 let queueLimit = 200;
+// group by: the table in sections. Each grouping names a PR's section (null for none);
+// sections keep the table's sort inside them and run in the grouping's order, else largest first.
+// Built on demand: the suggested categories are declared further down
+const groupings = () => ({
+  suggested: { label: 'suggested category', of: p => { if (p.s !== 'open') return 'not open'; const c = CATEGORIES.find(c => c[2](p)); return c ? c[0] : 'everything else'; }, order: [...CATEGORIES.map(c => c[0]), 'everything else', 'not open'], desc: Object.fromEntries(CATEGORIES.map(c => [c[0], c[1]])) },
+  kind: { label: 'kind of change', of: p => p.k.length ? (p.k.length === 1 ? p.k[0] + ' only' : p.k.slice().sort((a, b) => KINDS.indexOf(a) - KINDS.indexOf(b)).join(' + ')) : 'no files' },
+  service: { label: 'service', of: p => p.sv.length === 0 ? 'no service' : p.sv.length === 1 ? p.sv[0] : 'several services' },
+  court: { label: 'court', of: p => p.s !== 'open' ? p.s : p.ct + "'s court" },
+  status: { label: 'status today', of: p => p.s !== 'open' ? p.s : p.status || 'open', order: [...STATE_NAMES, 'open', 'merged', 'closed'] },
+  ci: { label: 'ci', of: p => p.s !== 'open' ? 'not open' : p.ci ? 'ci ' + p.ci : 'no ci', order: ['ci failing', 'ci running', 'ci passing', 'no ci', 'not open'] },
+  group: { label: 'author group', of: p => p.g, order: [...GROUP_NAMES, 'community'] },
+  effort: { label: 'effort', of: p => 'effort ' + p.ef, order: ['effort 1', 'effort 2', 'effort 3', 'effort 4', 'effort 5'] },
+  author: { label: 'author', of: p => p.a },
+});
+function grouped(rows) {
+  const g = groupings()[S.gb]; if (!g) return null;
+  const by = new Map();
+  for (const p of rows) { const k = g.of(p) ?? 'other'; if (!by.has(k)) by.set(k, []); by.get(k).push(p); }
+  const names = [...by.keys()].sort((a, b) => { const o = g.order || []; const ia = o.indexOf(a), ib = o.indexOf(b); if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib); return by.get(b).length - by.get(a).length || a.localeCompare(b); });
+  return names.map(name => ({ name, desc: (g.desc || {})[name] || '', prs: by.get(name) }));
+}
 function renderQueue(view) {
   const rows = M.slice();
   rows.sort(colSorter(S.sort)); if (S.dir === 'asc') rows.reverse();
   const cols = visibleCols();
+  // the rows to draw, group headers interleaved when grouping; the limit counts PRs
+  const sections = grouped(rows);
+  const drawn = sections ? sections.flatMap(sec => [{ hdr: sec }, ...sec.prs]) : rows;
+  let budget = queueLimit;
+  const body = drawn.filter(r => r.hdr || budget-- > 0).map(r => r.hdr
+    ? `<tr class="group"><td colspan="${cols.length}">${esc(r.hdr.name)}<span class="n">${fmtNum(r.hdr.prs.length)}</span>${r.hdr.desc ? `<span class="desc">${esc(r.hdr.desc)}</span>` : ''}</td></tr>`
+    : `<tr class="pr" data-n="${r.n}">${cols.map(c => `<td class="${c.cls}">${c.f(r)}</td>`).join('')}</tr>${S.open_n === String(r.n) ? `<tr class="detail"><td colspan="${cols.length}">${detail(r)}</td></tr>` : ''}`).join('');
   const inCourt = rows.filter(p => p.ct === 'maintainer').length, inAuthor = rows.filter(p => p.ct === 'author').length;
   view.innerHTML = `
     <div class="tiles">
@@ -560,7 +592,7 @@ function renderQueue(view) {
       <div class="tile"><div class="v">${fmtDays(median(rows.map(p => p.age)))}</div><div class="k">median age</div><div class="d">oldest ${fmtDays(Math.max(0, ...rows.map(p => p.age)))}</div></div>
     </div>
     <div class="panel wide table"><h2>PRs<span class="desc">every PR matching the filter · click a row for its life and timeline · click an author, service, or label to filter by it · drag a header to reorder, × removes it, <b>columns</b> adds</span></h2><table id="q-table"><thead><tr>${cols.map(c => `<th class="${c.cls} ${S.sort === c.k ? 'on' + (S.dir === 'asc' ? ' asc' : '') : ''}" data-sort="${c.k}" draggable="true" title="${esc(c.d)}">${c.l}<span class="rm" title="remove the column">×</span></th>`).join('')}</tr></thead><tbody>
-      ${rows.slice(0, queueLimit).map(p => `<tr class="pr" data-n="${p.n}">${cols.map(c => `<td class="${c.cls}">${c.f(p)}</td>`).join('')}</tr>${S.open_n === String(p.n) ? `<tr class="detail"><td colspan="${cols.length}">${detail(p)}</td></tr>` : ''}`).join('')}
+      ${body}
       ${rows.length > queueLimit ? `<tr><td colspan="${cols.length}" class="more">showing ${queueLimit} of ${rows.length} — <a id="q-more">show 200 more</a></td></tr>` : ''}
       ${!rows.length ? `<tr><td colspan="${cols.length}" class="empty">nothing matches</td></tr>` : ''}
     </tbody></table></div>`;
@@ -568,11 +600,13 @@ function renderQueue(view) {
   if (!sortOpts.some(([k]) => k === S.sort) && COL[S.sort]) sortOpts.push([S.sort, COL[S.sort].l]); // sorted by a hidden column
   const shown = new Set(cols.map(c => c.k));
   tabControls(`<span>sort <select id="q-sort">${sortOpts.map(([v, l]) => `<option value="${v}"${S.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select></span>
+    <span>group by <select id="q-group" title="the table in sections, to tackle alike PRs together"><option value="">none</option>${Object.entries(groupings()).map(([k, g]) => `<option value="${k}"${S.gb === k ? ' selected' : ''}>${g.label}</option>`).join('')}</select></span>
     <span class="picker" id="colpick"><button class="plain pick on" type="button">columns <span class="dim">${cols.length}</span></button>
       <div class="pop" hidden><input type="search" placeholder="filter…"><div class="opt reset"><span class="sw all"></span><span class="name">reset to the default columns</span></div><div class="rows">${Object.values(COL).map(c => `<div class="opt${shown.has(c.k) ? ' on' : ''}" data-v="${c.k}" data-name="${esc(c.l.toLowerCase())}" title="${esc(c.d)}"><span class="sw"></span><span class="name">${esc(c.l)}</span><span class="desc">${esc(c.d)}</span></div>`).join('')}</div></div></span>
-    <span class="views">views ${VIEWS.map(([l, q]) => `<button class="pillbtn${S.q === q ? ' on' : ''}" data-q="${esc(q)}">${l}</button>`).join('')}</span>`);
+    <span>preset <select id="q-view" title="a ready-made query; the query box shows what it is">${[['none', ''], ...VIEWS].map(([l, q]) => `<option value="${esc(q)}"${S.q === q ? ' selected' : ''}>${l}</option>`).join('')}${S.q && !VIEWS.some(([, q]) => q === S.q) ? `<option value="${esc(S.q)}" selected>custom query</option>` : ''}</select></span>`);
   $('#q-sort').addEventListener('change', e => { S.dir = ''; set('sort', e.target.value); });
-  document.querySelectorAll('#tabctl .views .pillbtn').forEach(el => el.addEventListener('click', () => set('q', S.q === el.dataset.q ? '' : el.dataset.q)));
+  $('#q-group').addEventListener('change', e => set('gb', e.target.value));
+  $('#q-view').addEventListener('change', e => set('q', e.target.value));
   bindColumnPicker(cols);
   view.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', e => { if (e.target.closest('.rm')) return; const k = th.dataset.sort; if (S.sort === k) S.dir = S.dir === 'asc' ? '' : 'asc'; else S.dir = ''; set('sort', k); }));
   view.querySelectorAll('th .rm').forEach(x => x.addEventListener('click', e => { e.stopPropagation(); setCols(cols.map(c => c.k).filter(k => k !== x.parentElement.dataset.sort)); }));
@@ -635,7 +669,7 @@ function detail(p) {
     <div class="row"><b>life</b>${fmtDate(p.c)} → ${p.x ? fmtDate(p.x) : 'now'} · ${fmtDays((end - start) / DAY)} ${p.s} ${p.mb ? '· merged by ' + esc(p.mb) : ''} ${p.ms ? '· milestone ' + esc(p.ms) : ''}</div>
     <div class="life">${life}</div>
     <div class="legend">${STATE_NAMES.map((s, i) => `<span title="${STATE_DESC[i]}"><i class="box" style="--c:${STATE_COLORS[i]}"></i>${s}</span>`).join('')}</div>
-    <div class="row"><b>review</b>${p.rv} reviews · ${p.rr} changes-requested rounds · ${p.ap} approvals · first maintainer response ${p.fr < 0 ? 'none' : fmtDays(p.fr) + ' (' + esc(p.fw) + ')'} · waiting-response ${fmtDays(p.wd)} over ${p.wc} cycle${p.wc === 1 ? '' : 's'} · decision ${p.rd || 'none'} · ${p.mg || ''}</div>
+    <div class="row"><b>review</b>${p.rv} reviews · ${p.rr} changes-requested rounds · ${p.ap} approvals · first maintainer response ${p.fr < 0 ? 'none' : fmtDays(p.fr) + ' (' + esc(p.fw) + ')'} · waiting-response ${fmtDays(p.wd)} over ${p.wc} cycle${p.wc === 1 ? '' : 's'} · decision ${p.rd || 'none'} · ${p.mg || ''}${p.ci ? ` · <span class="${{ passing: 'ok', failing: 'bad', running: 'mid' }[p.ci]}">ci ${p.ci}</span>` : ''}</div>
     <div class="row"><b>roll</b>reviewed by ${p.rb.length ? logins(p.rb, 'reviewedby', 6) : 'nobody'} · approved by ${p.ab.length ? logins(p.ab, 'approvedby', 6) : 'nobody'} · changes requested by ${p.cb.length ? p.cb.map(c => `<span class="clk" data-q="changesby:${esc(c.l)}">${esc(c.l)}</span><span class="dim">(×${c.n} ✎${c.c})</span>`).join(', ') : 'nobody'} · ${p.rc} review comment${p.rc === 1 ? '' : 's'}${p.ci ? ` · ci <span class="${{ passing: 'ok', failing: 'bad', running: 'mid' }[p.ci]}">${p.ci}</span>` : ''}</div>
     <div class="row"><b>people</b>author <span class="clk" data-author="${esc(p.a)}">${esc(p.a)}</span> (${esc(p.as.toLowerCase().replace('_', ' '))}, ${esc(p.g)}) · reviewers ${p.rw.length ? p.rw.map(r => `<span class="clk" data-reviewer="${esc(r)}">${esc(r)}</span>`).join(', ') : 'none'} ${p.lastMaintBy ? '· last maintainer touch ' + esc(p.lastMaintBy) : ''}</div>
     <div class="row"><b>change</b>+${fmtNum(p.ad)}/−${fmtNum(p.de)} over ${p.f} files · effort ${p.ef}/5 · ${p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join('')} ${p.sv.map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('')}</div>
@@ -817,7 +851,7 @@ function renderPeople(view) {
   bindTableSorts(view); bindRowClicks(view);
 }
 
-// ---- the areas tab ----
+// ---- the services tab ----
 function renderAreas(view) {
   const agg = (key, items) => {
     const m = new Map();
@@ -884,12 +918,12 @@ function update(rerenderFilters) {
   if (rerenderFilters) renderFilters();
   else syncFilterButtons();
   $('#f-n').textContent = fmtNum(M.length);
+  S.tab = { queue: 'prs', data: 'prs', areas: 'services' }[S.tab] || S.tab; // the tabs' old names, in bookmarked links and saved views
   renderTabs();
   const view = $('#view'); view.innerHTML = '';
-  if (S.tab === 'queue') S.tab = 'data'; // the tab's old name, in bookmarked links
-  ({ data: renderQueue, trends: renderTrends, suggested: renderSuggested, people: renderPeople, areas: renderAreas, checks: renderChecks }[S.tab] || renderQueue)(view);
-  // the saved views are the data tab's columns and sort and the trends tab's layouts: their controls live in those tabs' control rows
-  if ((S.tab === 'trends' || S.tab === 'data') && vc) { $('#tabctl').appendChild(vc); vc.hidden = false; }
+  ({ prs: renderQueue, trends: renderTrends, suggested: renderSuggested, people: renderPeople, services: renderAreas, checks: renderChecks }[S.tab] || renderQueue)(view);
+  // a view is the whole state but the tab — the filter every tab shares, the prs tab's columns and sort, the trends tab's layouts — so its controls show on every tab
+  if (vc) { $('#tabctl').appendChild(vc); vc.hidden = false; }
   if ($('#viewSel').innerHTML) renderViews();
   $('#subtitle').textContent = `${fmtNum(D.prs.length)} PRs open at some point since ${D.since} · ${fmtNum(D.prs.filter(p => p.s === 'open').length)} open now · generated ${D.generated} by prawn ${D.version || 'dev'}`;
 }
@@ -983,15 +1017,15 @@ function viewPromptSections(ask, full) {
 ##########
 Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: data (a sortable table), trends (metric panels over time), suggested (easy reviews), areas (services), people (authors and reviewers), checks (close candidates).
 Answer with ONE json code block and nothing else, in exactly this form:
-{"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=data&q=<query>&sort=<column>&dc=<columns>"
-The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
-Data keys: tab=data, sort=priority|<column key>, dir=asc (reverses the sort), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
+{"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
+The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes (drafts only), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
+PRs keys: tab=prs, sort=priority|<column key>, dir=asc (reverses the sort), gb=suggested|kind|service|court|status|ci|group|effort|author (the table in sections), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
 Trends keys: tab=trends, gran=day|week|month, cols=1|2|3, marks=major|minor|none (release markers).
 - m: the panels, separated by |. Each panel is an optional flag prefix then a comma separated list of metric keys: "s:" stacks the series as areas (only for same-unit series that add up, like the review statuses or opened-by-group), "b:" draws bars, "sb:" stacked bars, "t:" shows the panel as a table, "w:" makes the panel span the grid; flags combine ("sbw:"). A key prefixed with ! goes on the right-hand axis, with ~ it is plotted but hidden until the user clicks its legend entry (useful for a dominant series that would flatten the others); a panel may mix at most two units and the second unit is put on the right automatically.
 - Put closely related series together; 3 to 8 panels is a good view; order them from the most important down. The name should say what the view is about.
 Only use metric keys from the list below; anything else is dropped. Groups configured: ${GROUP_NAMES.map(g => `${g} (${D.groups[g].length} logins)`).join(', ')}; maintainers are the ${D.maintainerGroup} group. Services (top 30 by open PRs): ${countBy(p => p.s === 'open' ? p.sv : []).slice(0, 30).map(([v, n]) => `${v} (${n})`).join(', ')}.`;
   const example = `The view currently on the page, as an example of the format:
-${location.hash.slice(1) || 'tab=data (the default: open PRs, no filter)'}`;
+${location.hash.slice(1) || 'tab=prs (the default: open PRs, no filter)'}`;
   const cat = ['Metrics (key | label | unit | what it measures):'];
   for (const area of AREAS) {
     const ms = METRICS.filter(m => m.area === area);
@@ -1033,5 +1067,5 @@ function boot() {
   bindViews(); renderViews(); bindAI();
   $('#copy-link').addEventListener('click', () => { navigator.clipboard?.writeText(location.href); $('#copy-link').textContent = 'copied'; setTimeout(() => { $('#copy-link').textContent = 'copy link'; }, 1200); });
   window.addEventListener('hashchange', () => { readHash(); update(true); });
-  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.tab === 'trends' || S.tab === 'areas') update(); }, 150); });
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.tab === 'trends' || S.tab === 'services') update(); }, 150); });
 }
