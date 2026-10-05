@@ -139,6 +139,7 @@ type PR struct {
 	Behind         *int     `json:"bh,omitempty"`
 	Ahead          *int     `json:"ah,omitempty"`
 	CIDrift        *int     `json:"cdr,omitempty"`
+	Tests          *Tests   `json:"tc,omitempty"` // the acceptance tests teamcity ran for it, open PRs only
 	Props          []string `json:"pp,omitempty"` // the schema properties the diff adds or changes on existing resources, open PRs only
 
 	FirstResponseDays float64 `json:"fr"` // days to the first maintainer response, -1 when none yet
@@ -218,8 +219,9 @@ type Input struct {
 	Commits  map[int][]db.Commit
 	Verdicts map[int]map[string]db.Verdict
 	Closes   map[int][]db.LinkedIssue
-	Diffs    map[int]string // unified diffs, stored for the open set only
-	CI       map[int]db.CI  // the detail behind the check state, measured for the open set on every fetch
+	Diffs    map[int]string       // unified diffs, stored for the open set only
+	CI       map[int]db.CI        // the detail behind the check state, measured for the open set on every fetch
+	Tests    map[int][]db.TCBuild // teamcity's acceptance test builds, by PR
 }
 
 // labels and milestones the state machine reads
@@ -281,11 +283,15 @@ func Build(in Input, cfg Config) *Data {
 	services := map[string]bool{}
 	labels := map[string]bool{}
 	d.PRs = make([]PR, 0, len(in.PRs))
+	testService := serviceNames(in.Tests)
 	for _, p := range in.PRs {
 		row := derive(p, in.Events[p.Number], in.Commits[p.Number], in.Verdicts[p.Number], in.Closes[p.Number], maint, partners, now)
 		row.Props = Properties(in.Diffs[p.Number])
 		if c, ok := in.CI[p.Number]; ok && p.State == db.PROpen {
 			withCI(&row, &c)
+		}
+		if p.State == db.PROpen {
+			row.Tests = tests(in.Tests[p.Number], in.Commits[p.Number], testService)
 		}
 		if g, ok := groupOf[strings.ToLower(p.Author)]; ok {
 			row.Group = g
@@ -673,11 +679,11 @@ func ci(p *db.PR, commits []db.Commit, now time.Time) string {
 	}
 	switch p.CheckState {
 	case "SUCCESS":
-		return "passing"
+		return outcomePassing
 	case "FAILURE", "ERROR":
-		return "failing"
+		return outcomeFailing
 	case "PENDING", "EXPECTED":
-		return "running"
+		return outcomeRunning
 	default:
 		var head time.Time
 		for _, c := range commits {
@@ -706,7 +712,7 @@ func withCI(row *PR, c *db.CI) {
 	if !c.RanAt.IsZero() {
 		row.CIRan = c.RanAt.Unix()
 	}
-	if row.CI == "failing" {
+	if row.CI == outcomeFailing {
 		row.CIFailing = c.Failing
 		if !c.FailingSince.IsZero() {
 			row.CIFailingSince = c.FailingSince.Unix()

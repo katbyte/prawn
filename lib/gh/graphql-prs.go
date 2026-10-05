@@ -353,7 +353,13 @@ func (c *Client) UpdatedPRs(owner, name string, since time.Time, cursor string, 
 			Nodes      []PRNode `json:"nodes"`
 		} `json:"search"`
 	}
-	if err := c.DoTolerant(updatedPRsQuery, vars, &resp); err != nil {
+	// a full page that fails is better answered by a smaller one than by waiting: the caller
+	// drops to UpdatedPRsSmallPage, so only that last resort is retried patiently
+	do := c.DoTolerant
+	if pageSize > UpdatedPRsSmallPage {
+		do = c.DoTolerantOnce
+	}
+	if err := do(updatedPRsQuery, vars, &resp); err != nil {
 		return nil, fmt.Errorf("fetching updated PRs page: %w", err)
 	}
 

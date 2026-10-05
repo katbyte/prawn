@@ -202,6 +202,28 @@ CREATE TABLE pr_ci (
 -- how many of the head commit's workflows github is holding for a maintainer's
 -- approval (a fork's first runs): while any are, the check state says nothing
 ALTER TABLE pr_ci ADD COLUMN awaiting INTEGER NOT NULL DEFAULT 0;
+`, `
+-- the acceptance test builds teamcity ran on pull request branches, one row a
+-- build: several a PR, one per service it was tested for and one per re-run.
+-- failed_tests is filled in afterwards, for the builds that matter.
+CREATE TABLE tc_builds (
+  id           INTEGER PRIMARY KEY,
+  pr_number    INTEGER NOT NULL,
+  build_type   TEXT NOT NULL DEFAULT '',
+  branch       TEXT NOT NULL DEFAULT '',
+  state        TEXT NOT NULL DEFAULT '',
+  status       TEXT NOT NULL DEFAULT '',
+  status_text  TEXT NOT NULL DEFAULT '',
+  passed       INTEGER NOT NULL DEFAULT 0,
+  failed       INTEGER NOT NULL DEFAULT 0,
+  ignored      INTEGER NOT NULL DEFAULT 0,
+  started_at   TEXT NOT NULL DEFAULT '',
+  finished_at  TEXT NOT NULL DEFAULT '',
+  revision     TEXT NOT NULL DEFAULT '',
+  url          TEXT NOT NULL DEFAULT '',
+  failed_tests TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_tc_builds_pr ON tc_builds(pr_number, build_type, id);
 `}
 
 func (d *DB) migrate() error {

@@ -99,7 +99,7 @@ func (c *Client) throttle() {
 // throttled, and rate-limit rejections are retried after a long backoff. Any
 // graphql-level error fails the call.
 func (c *Client) Do(query string, variables map[string]any, out any) error {
-	return c.request(query, variables, out, false)
+	return c.request(query, variables, out, false, requestAttempts)
 }
 
 // DoTolerant is Do for queries whose individual nodes may legitimately fail —
@@ -108,16 +108,29 @@ func (c *Client) Do(query string, variables map[string]any, out any) error {
 // ignored and the partial data decoded — the affected nodes come back null;
 // anything else still fails.
 func (c *Client) DoTolerant(query string, variables map[string]any, out any) error {
-	return c.request(query, variables, out, true)
+	return c.request(query, variables, out, true, requestAttempts)
 }
 
-func (c *Client) request(query string, variables map[string]any, out any, tolerant bool) error {
+// DoTolerantOnce is DoTolerant for a caller with a better answer to a failed
+// page than asking for it again: it gives up after quickAttempts, where the
+// others wait out seven with growing pauses.
+func (c *Client) DoTolerantOnce(query string, variables map[string]any, out any) error {
+	return c.request(query, variables, out, true, quickAttempts)
+}
+
+// how often a request is tried: patiently by default — a gateway timeout or a
+// rate limit usually clears — and barely when the caller will shrink the page
+const (
+	requestAttempts = 7
+	quickAttempts   = 2
+)
+
+func (c *Client) request(query string, variables map[string]any, out any, tolerant bool, maxAttempts int) error {
 	payload, err := json.Marshal(map[string]any{varQuery: query, "variables": variables})
 	if err != nil {
 		return fmt.Errorf("marshalling graphql request: %w", err)
 	}
 
-	const maxAttempts = 7
 	for attempt := range maxAttempts {
 		c.throttle()
 
