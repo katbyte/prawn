@@ -185,7 +185,7 @@ function renderFilters() {
   });
   togglePills('#f-st', 'st');
   $('#f-dr').addEventListener('click', () => set('dr', S.dr ? '' : 'yes'));
-  $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q']) S[k] = DEFAULTS[k]; S.st = ''; update(true); });
+  $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
     keys: <code>author group svc kind only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind:docs</code> touches docs, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, none).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
@@ -198,7 +198,7 @@ function syncFilterButtons() {
     const on = val ? val.split(',') : [];
     document.querySelectorAll(id + ' button').forEach(b => b.classList.toggle('on', on.includes(b.dataset.v)));
   }
-  document.querySelectorAll('.picker').forEach(syncPicker);
+  document.querySelectorAll('.picker[data-key]').forEach(syncPicker);
 }
 
 // a multi-select picker: a button naming the selection, a popover of searchable checkbox rows with counts
@@ -215,7 +215,7 @@ function syncPicker(el) {
   el.querySelectorAll('.opt').forEach(l => l.classList.toggle('on', on.includes(l.dataset.v)));
 }
 function bindPickers() {
-  document.querySelectorAll('.picker').forEach(el => {
+  document.querySelectorAll('.picker[data-key]').forEach(el => { // the filter bar's own: the tab row's pickers bind themselves
     const key = el.dataset.key, pop = el.querySelector('.pop'), search = pop.querySelector('input');
     syncPicker(el);
     el.querySelector('button.pick').addEventListener('click', () => { const open = pop.hidden; document.querySelectorAll('.picker .pop').forEach(p => { p.hidden = true; }); pop.hidden = !open; if (open) { search.value = ''; search.dispatchEvent(new Event('input')); search.focus(); } });
@@ -561,6 +561,32 @@ const VIEWS = [
   ['big & old', 'state:open effort>3 age>180'],
   ['maintainer court > 14d', 'state:open court:maintainer cd>14'],
 ];
+// the ready-made filters combine: each is a query, and the query box holds them merged. The same key across two
+// filters means either (ci:failing + ci:none is ci:failing,none), different keys mean both. A filter is on when the
+// query holds all of it; whatever else was typed into the query stays through every toggle.
+const qTokens = q => (q || '').match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+const qKV = t => { const m = /^([a-z]+):(.+)$/i.exec(t); return m ? [m[1], m[2].split(',')] : null; }; // a plain key:a,b term (a -key: one is not)
+function filtersOn(q) {
+  const toks = qTokens(q);
+  const has = t => { const a = qKV(t); return a ? toks.some(x => { const b = qKV(x); return b && b[0] === a[0] && a[1].every(v => b[1].includes(v)); }) : toks.includes(t); };
+  return VIEWS.filter(([, fq]) => qTokens(fq).every(has));
+}
+function toggleFilter(q, name) {
+  const was = filtersOn(q), now = was.some(f => f[0] === name) ? was.filter(f => f[0] !== name) : [...was, VIEWS.find(f => f[0] === name)];
+  // what the query holds beyond the filters that were on: typed by hand, kept as it is
+  const covered = was.flatMap(([, fq]) => qTokens(fq)), coveredKV = {};
+  for (const a of covered.map(qKV)) if (a) (coveredKV[a[0]] ||= new Set()), a[1].forEach(v => coveredKV[a[0]].add(v));
+  const extras = qTokens(q).flatMap(t => { const a = qKV(t); if (!a) return covered.includes(t) ? [] : [t]; const rest = a[1].filter(v => !(coveredKV[a[0]] && coveredKV[a[0]].has(v))); return rest.length ? [`${a[0]}:${rest.join(',')}`] : []; });
+  const out = [], at = {};
+  for (const t of [...now.flatMap(([, fq]) => qTokens(fq)), ...extras]) {
+    const a = qKV(t);
+    if (!a) { if (!out.includes(t)) out.push(t); continue; }
+    if (at[a[0]] == null) { at[a[0]] = out.length; out.push([a[0], [...a[1]]]); } else for (const v of a[1]) if (!out[at[a[0]]][1].includes(v)) out[at[a[0]]][1].push(v);
+  }
+  return out.map(t => Array.isArray(t) ? `${t[0]}:${t[1].join(',')}` : t).join(' ');
+}
+let filterPopOpen = false; // the filter list stays open over the re-render each tick causes, until a click elsewhere
+document.addEventListener('click', e => { if (!e.target.closest('#viewpick')) filterPopOpen = false; });
 let queueLimit = 200;
 // group by: the table in sections. Each grouping names a PR's section (null for none);
 // sections keep the table's sort inside them and run in the grouping's order, else largest first.
@@ -620,12 +646,14 @@ function renderQueue(view) {
       ${!rows.length ? `<tr><td colspan="${cols.length}" class="empty">nothing matches</td></tr>` : ''}
     </tbody></table></div>`;
   const sortOpts = [['priority', 'priority: maintainer court · cheapest · longest'], ...cols.map(c => [c.k, c.l])];
+  const on = filtersOn(S.q); // the ready-made filters the query holds
   if (!sortOpts.some(([k]) => k === S.sort) && COL[S.sort]) sortOpts.push([S.sort, COL[S.sort].l]); // sorted by a hidden column
   const shown = new Set(cols.map(c => c.k));
   tabControls(`<span>sort <select id="q-sort">${sortOpts.map(([v, l]) => `<option value="${v}"${S.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select></span>
     <span>group by <select id="q-group" title="the table in sections, to tackle alike PRs together"><option value="">none</option>${Object.entries(groupings()).map(([k, g]) => `<option value="${k}"${S.gb === k ? ' selected' : ''}>${g.label}</option>`).join('')}</select></span>${sections ? `<button class="plain" id="q-fold" title="fold every group shut, or open them all">${sections.every(sec => shut.has(sec.name)) ? 'open all' : 'fold all'}</button>` : ''}
     <span>show <select id="q-show" title="one kind of PR at a time"><option value="">all</option>${SHOWS.map(([k, l]) => `<option value="${k}"${S.sh === k ? ' selected' : ''}>${l}</option>`).join('')}</select></span>
-    <span>filter <select id="q-view" title="a ready-made query; the query box shows what it is">${[['none', ''], ...VIEWS].map(([l, q]) => `<option value="${esc(q)}"${S.q === q ? ' selected' : ''}>${l}</option>`).join('')}${S.q && !VIEWS.some(([, q]) => q === S.q) ? `<option value="${esc(S.q)}" selected>custom query</option>` : ''}</select></span>
+    <span class="picker" id="viewpick" title="ready-made queries; tick as many as apply — the query box shows the result"><button class="plain pick${on.length ? ' on' : ''}" type="button">filter <span class="dim">${on.length ? (on.length <= 2 ? on.map(f => f[0]).join(', ') : `${on[0][0]} +${on.length - 1}`) : S.q ? 'custom query' : 'none'}</span></button>
+      <div class="pop"${filterPopOpen ? '' : ' hidden'}><div class="opt reset" data-v=""><span class="sw all"></span><span class="name">none</span></div>${VIEWS.map(([l, fq]) => `<div class="opt${on.some(f => f[0] === l) ? ' on' : ''}" data-v="${esc(l)}"><span class="sw"></span><span class="name">${esc(l)}</span><span class="desc">${esc(fq.replace(/^state:open /, ''))}</span></div>`).join('')}</div></span>
     <span class="picker" id="colpick"><button class="plain pick on" type="button">columns <span class="dim">${cols.length}</span></button>
       <div class="pop" hidden><input type="search" placeholder="filter…"><div class="opt reset"><span class="sw all"></span><span class="name">reset to the default columns</span></div><div class="rows">${Object.values(COL).map(c => `<div class="opt${shown.has(c.k) ? ' on' : ''}" data-v="${c.k}" data-name="${esc(c.l.toLowerCase())}" title="${esc(c.d)}"><span class="sw"></span><span class="name">${esc(c.l)}</span><span class="desc">${esc(c.d)}</span></div>`).join('')}</div></div></span>
     <button class="plain" id="q-open" title="open every PR in the table in a new tab — the ones in folded groups left out">open</button>
@@ -635,7 +663,14 @@ function renderQueue(view) {
   const fold = $('#q-fold'); if (fold) fold.addEventListener('click', () => set('gc', sections.every(sec => shut.has(sec.name)) ? '' : sections.map(sec => sec.name).join('|')));
   view.querySelectorAll('tr.group').forEach(tr => tr.addEventListener('click', () => { const g = tr.dataset.g; if (shut.has(g)) shut.delete(g); else shut.add(g); set('gc', [...shut].join('|')); }));
   $('#q-show').addEventListener('change', e => set('sh', e.target.value));
-  $('#q-view').addEventListener('change', e => set('q', e.target.value));
+  const vp = $('#viewpick'), vpop = vp.querySelector('.pop');
+  vp.querySelector('button.pick').addEventListener('click', () => { const open = vpop.hidden; document.querySelectorAll('.picker .pop').forEach(p => { p.hidden = true; }); vpop.hidden = !open; filterPopOpen = open; });
+  vpop.addEventListener('click', e => {
+    const l = e.target.closest('.opt'); if (!l) return; e.preventDefault();
+    filterPopOpen = true;
+    // none drops every filter that is on, one at a time, so what was typed by hand stays
+    set('q', l.dataset.v ? toggleFilter(S.q, l.dataset.v) : filtersOn(S.q).reduce((q, f) => toggleFilter(q, f[0]), S.q));
+  });
   bindColumnPicker(cols);
   $('#q-export').addEventListener('click', openExport);
   $('#q-open').addEventListener('click', openAll);
