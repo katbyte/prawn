@@ -77,12 +77,12 @@ export PRAWN_GROUP_MEMBERS=katbyte,jackofallops   # author groups, any number of
 export PRAWN_GROUP_PARTNERS=magodo,wodansson
 prawn fetch
 prawn explore                     # -> report/explore.html
-prawn explore --serve 8765        # ...and serve it, for other machines on the network
+prawn explore --serve 8765        # ...and serve it, for other machines on the network; its refresh button re-fetches and rebuilds
 ```
 
 One self-contained page over every PR open at any point in the period, with a filter bar, and six tabs picked from the dropdown in the header:
 
-- **prs** — the matching PRs as a table; pick, reorder, and sort the columns, **group by** suggested category, kind, service, court, status, ci, author group, effort, or author to tackle alike PRs together; open a row for the PR's timeline
+- **prs** — the matching PRs as a table; pick, reorder, and sort the columns, **group by** suggested category, kind, documentation type, service, court, status, ci, failing check, properties changed, author group, effort, or author to tackle alike PRs together (a group folds on a click), or **show** only one kind (approved, docs only, ci/test only, a single property, 2–4 properties); **export** the table as a csv with the columns you pick; open a row for the PR's timeline
 - **trends** — metrics over time: backlog, flow, review status, times, review load, and quality by author group
 - **suggested** — easy wins by category (docs only, approved but unmerged, small and unanswered, …) or by service
 - **people** — authors and reviewers

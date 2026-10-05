@@ -2,23 +2,32 @@ package explore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/katbyte/go-kt/clog"
 	"github.com/katbyte/go-kt/cout"
 )
 
 // serve keeps the written page available over http until interrupted, so
 // other machines on the network can open it — the page is one file with
-// its data embedded, so this is a file server for exactly that file.
-func serve(path, addr string) error {
+// its data embedded, so this is a file server for exactly that file, plus
+// /refresh: the page's button to sync and rebuild it. rebuild is what that
+// button runs; startup, when not nil, runs once as the first refresh as soon
+// as the page is up.
+func serve(path, addr string, rebuild, startup func() error) error {
 	if !strings.Contains(addr, ":") {
 		addr = ":" + addr // a bare port
 	}
@@ -31,7 +40,16 @@ func serve(path, addr string) error {
 		w.Header().Set("Cache-Control", "no-cache") // a regenerated page must win over a cached one
 		http.ServeFile(w, r, path)
 	})
-	srv := &http.Server{Addr: addr, Handler: logged(mux), ReadHeaderTimeout: 10 * time.Second}
+	// what a build prints, and what it warns of, goes where it always did and — while a refresh
+	// runs — into that refresh's log, for the page's status window. Set once, before anything serves.
+	rf := &refresher{run: rebuild}
+	stdout, logOut := cout.Out, clog.Log.Out
+	cout.Out = io.MultiWriter(stdout, &rf.log)
+	clog.Log.SetOutput(io.MultiWriter(logOut, &rf.log))
+	defer func() { cout.Out = stdout; clog.Log.SetOutput(logOut) }()
+	mux.Handle("/refresh", rf)
+	// the request log goes straight to the terminal: who loaded the page is not part of a refresh
+	srv := &http.Server{Addr: addr, Handler: logged(mux, stdout), ReadHeaderTimeout: 10 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -50,6 +68,9 @@ func serve(path, addr string) error {
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+	if startup != nil {
+		rf.startWith("startup", startup)
+	}
 	select {
 	case err := <-errc:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -64,6 +85,152 @@ func serve(path, addr string) error {
 	}
 }
 
+// refreshGap is how soon after a refresh another may start: the button is
+// for "it moved since I opened this", not for holding down.
+const refreshGap = 30 * time.Second
+
+// refresher is the page's refresh button: POST starts a sync and rebuild
+// unless one is running or only just finished, GET reports how it is going.
+// One runs at a time, whoever asked; the page polls and reloads when it ends.
+type refresher struct {
+	run func() error
+
+	mu       sync.Mutex
+	running  bool
+	started  time.Time
+	finished time.Time
+	by       string
+	err      string
+
+	log runLog // what the running refresh has printed; the last one's once it ends
+}
+
+// refreshStatus is what the page polls. Log is only sent when asked for
+// (?from=<offset>): the text printed since that offset, LogEnd the offset to
+// ask from next.
+type refreshStatus struct {
+	Running  bool   `json:"running"`
+	Started  string `json:"started,omitempty"`
+	Finished string `json:"finished,omitempty"`
+	By       string `json:"by,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Log      string `json:"log,omitempty"`
+	LogEnd   int    `json:"logEnd,omitempty"`
+}
+
+// runLogMax bounds a refresh's kept output: a first walk of a big repo prints
+// a line every few PRs, and the status window needs the story, not all of it.
+const runLogMax = 1 << 20
+
+// ansi matches the colour codes the terminal output carries.
+var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// runLog collects what is printed while a refresh runs, colour codes
+// stripped. It is written to by everything that prints, from any goroutine,
+// and ignores what arrives between refreshes.
+type runLog struct {
+	mu  sync.Mutex
+	on  bool
+	buf []byte
+}
+
+func (l *runLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.on && len(l.buf) < runLogMax {
+		l.buf = append(l.buf, ansi.ReplaceAll(p, nil)...)
+	}
+	return len(p), nil
+}
+
+// begin starts a fresh log; end stops collecting and keeps what there is.
+func (l *runLog) begin() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.on, l.buf = true, nil
+}
+
+func (l *runLog) end() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.on = false
+}
+
+// since returns what was printed after offset from, and the offset it ends at.
+func (l *runLog) since(from int) (text string, end int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if from < 0 || from > len(l.buf) {
+		from = 0 // a new refresh since the page last asked: from the top
+	}
+	return string(l.buf[from:]), len(l.buf)
+}
+
+func (rf *refresher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		// a header a form on another site cannot send, so only this page's own script starts a refresh
+		if r.Header.Get("X-Prawn") == "" {
+			http.Error(w, "refresh is the page's own button", http.StatusForbidden)
+			return
+		}
+		rf.start(viewer(r))
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		return
+	}
+	st := rf.status()
+	if from, err := strconv.Atoi(r.URL.Query().Get("from")); err == nil {
+		st.Log, st.LogEnd = rf.log.since(from)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(st)
+}
+
+// start kicks off a refresh unless one is running or one finished moments ago.
+func (rf *refresher) start(by string) { rf.startWith(by, rf.run) }
+
+// startWith is start running something other than the button's rebuild: the
+// sync a server does once it is up.
+func (rf *refresher) startWith(by string, run func() error) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.running || (!rf.finished.IsZero() && time.Since(rf.finished) < refreshGap) {
+		return
+	}
+	rf.running, rf.started, rf.by, rf.err = true, time.Now(), by, ""
+	rf.log.begin()
+	go func() {
+		err := run()
+		if err != nil {
+			cout.Printf("<red>refresh failed:</> %v\n", err)
+		}
+		rf.log.end()
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+		rf.running, rf.finished = false, time.Now()
+		if err != nil {
+			rf.err = err.Error()
+		}
+	}()
+}
+
+func (rf *refresher) status() refreshStatus {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	st := refreshStatus{Running: rf.running, By: rf.by, Error: rf.err}
+	if !rf.started.IsZero() {
+		st.Started = rf.started.UTC().Format(time.RFC3339)
+	}
+	if !rf.finished.IsZero() {
+		st.Finished = rf.finished.UTC().Format(time.RFC3339)
+	}
+	return st
+}
+
 // userHeaders are where a login-aware proxy in front (traefik's github auth
 // plugins, oauth2-proxy, authelia) puts the viewer's login; the first one set
 // names the viewer in the log. They mean nothing without such a proxy — any
@@ -72,13 +239,16 @@ var userHeaders = []string{"X-Forwarded-User", "X-Auth-Request-User", "X-Auth-Us
 
 // logged writes one line per request — who, from where, what, how it went —
 // so the container's log (or the terminal) shows who is looking at what.
-func logged(next http.Handler) http.Handler {
+func logged(next http.Handler, out io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		cout.Printf("<gray>%s</> %s <cyan>%s</> %s %s %s <gray>%s %s</>\n",
-			start.Format("2006-01-02 15:04:05"), viewer(r), from(r), r.Method, r.URL.Path, statusColour(sw.status), humanSize(sw.bytes), time.Since(start).Round(time.Millisecond))
+		if r.Method == http.MethodGet && r.URL.Path == "/refresh" {
+			return // the page polling a refresh: every few seconds, and nothing anyone did
+		}
+		_, _ = fmt.Fprint(out, cout.Sprintf("<gray>%s</> %s <cyan>%s</> %s %s %s <gray>%s %s</>\n",
+			start.Format("2006-01-02 15:04:05"), viewer(r), from(r), r.Method, r.URL.Path, statusColour(sw.status), humanSize(sw.bytes), time.Since(start).Round(time.Millisecond)))
 	})
 }
 

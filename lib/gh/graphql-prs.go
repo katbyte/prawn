@@ -225,17 +225,19 @@ query($owner: String!, $name: String!, $cursor: String) {
     pullRequests(first: 100, after: $cursor, states: [OPEN]) {
       totalCount
       pageInfo { endCursor hasNextPage }
-      nodes { number mergeable commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }
+      nodes { number mergeable baseRefName commits(last: 1) { nodes { commit { statusCheckRollup { state } checkSuites(last: 20) { nodes { updatedAt } } } } } }
     }
   }
 }`
 
 // OpenPRStatus is what the open-set walk carries per PR besides its number:
-// the two things that change without the PR's updatedAt moving, so an
+// the things that change without the PR's updatedAt moving, so an
 // incremental sync would never refresh them.
 type OpenPRStatus struct {
-	Mergeable  string // MERGEABLE | CONFLICTING | UNKNOWN
-	CheckState string // the head commit's combined CI state, "" without checks
+	Mergeable  string    // MERGEABLE | CONFLICTING | UNKNOWN
+	CheckState string    // the head commit's combined CI state, "" without checks
+	CIRanAt    time.Time // when the head commit's checks last finished — a re-run moves it — zero without checks
+	BaseRef    string    // the branch it merges into
 }
 
 // OpenPRNumbers pages every open PR's number, mergeability, and CI state. The
@@ -253,14 +255,20 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 					TotalCount int      `json:"totalCount"`
 					PageInfo   PageInfo `json:"pageInfo"`
 					Nodes      []struct {
-						Number    int    `json:"number"`
-						Mergeable string `json:"mergeable"`
-						Commits   struct {
+						Number      int    `json:"number"`
+						Mergeable   string `json:"mergeable"`
+						BaseRefName string `json:"baseRefName"`
+						Commits     struct {
 							Nodes []struct {
 								Commit struct {
 									StatusCheckRollup struct {
 										State string `json:"state"`
 									} `json:"statusCheckRollup"`
+									CheckSuites struct {
+										Nodes []struct {
+											UpdatedAt time.Time `json:"updatedAt"`
+										} `json:"nodes"`
+									} `json:"checkSuites"`
 								} `json:"commit"`
 							} `json:"nodes"`
 						} `json:"commits"`
@@ -272,9 +280,15 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 			return nil, fmt.Errorf("fetching open PR numbers: %w", err)
 		}
 		for _, n := range resp.Repository.PullRequests.Nodes {
-			st := OpenPRStatus{Mergeable: n.Mergeable}
+			st := OpenPRStatus{Mergeable: n.Mergeable, BaseRef: n.BaseRefName}
 			if len(n.Commits.Nodes) > 0 {
-				st.CheckState = n.Commits.Nodes[0].Commit.StatusCheckRollup.State
+				head := n.Commits.Nodes[0].Commit
+				st.CheckState = head.StatusCheckRollup.State
+				for _, suite := range head.CheckSuites.Nodes {
+					if suite.UpdatedAt.After(st.CIRanAt) {
+						st.CIRanAt = suite.UpdatedAt
+					}
+				}
 			}
 			open[n.Number] = st
 		}

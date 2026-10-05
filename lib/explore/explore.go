@@ -130,7 +130,16 @@ type PR struct {
 	ApprovedBy     []string        `json:"ab"`
 	ChangesBy      []ReviewerCount `json:"cb"`
 	ReviewComments int             `json:"rc"`           // inline comments across those reviews
-	CI             string          `json:"ci,omitempty"` // the head commit's checks: passing | failing | running, open PRs only
+	CI             string          `json:"ci,omitempty"` // the head commit's checks: passing | failing | running | expired (github dropped them), open PRs only
+	// the detail behind CI, open PRs only, as of the last fetch: when the checks last ran, which fail and since
+	// when, and how far the branch (behind, ahead) and its result (drift) have fallen behind the base branch
+	CIRan          int64    `json:"cir,omitempty"`
+	CIFailing      []string `json:"cif,omitempty"`
+	CIFailingSince int64    `json:"cis,omitempty"`
+	Behind         *int     `json:"bh,omitempty"`
+	Ahead          *int     `json:"ah,omitempty"`
+	CIDrift        *int     `json:"cdr,omitempty"`
+	Props          []string `json:"pp,omitempty"` // the schema properties the diff adds or changes on existing resources, open PRs only
 
 	FirstResponseDays float64 `json:"fr"` // days to the first maintainer response, -1 when none yet
 	FirstResponder    string  `json:"fw,omitempty"`
@@ -209,6 +218,8 @@ type Input struct {
 	Commits  map[int][]db.Commit
 	Verdicts map[int]map[string]db.Verdict
 	Closes   map[int][]db.LinkedIssue
+	Diffs    map[int]string // unified diffs, stored for the open set only
+	CI       map[int]db.CI  // the detail behind the check state, measured for the open set on every fetch
 }
 
 // labels and milestones the state machine reads
@@ -272,6 +283,10 @@ func Build(in Input, cfg Config) *Data {
 	d.PRs = make([]PR, 0, len(in.PRs))
 	for _, p := range in.PRs {
 		row := derive(p, in.Events[p.Number], in.Commits[p.Number], in.Verdicts[p.Number], in.Closes[p.Number], maint, partners, now)
+		row.Props = Properties(in.Diffs[p.Number])
+		if c, ok := in.CI[p.Number]; ok && p.State == db.PROpen {
+			withCI(&row, &c)
+		}
 		if g, ok := groupOf[strings.ToLower(p.Author)]; ok {
 			row.Group = g
 		} else {
@@ -316,7 +331,7 @@ func derive(p *db.PR, events []db.Event, commits []db.Commit, verdicts map[strin
 		MergedBy: p.MergedBy, Milestone: p.Milestone, Labels: p.Labels,
 		Files: p.ChangedFiles, Adds: p.Additions, Dels: p.Deletions, Comments: p.CommentCount,
 		Decision: strings.ToLower(p.ReviewDecision), Mergeable: strings.ToLower(p.Mergeable), Thumbs: p.ThumbsUp,
-		FirstResponseDays: -1, ResolveDays: -1, URL: p.URL, CI: ci(p),
+		FirstResponseDays: -1, ResolveDays: -1, URL: p.URL, CI: ci(p, commits, now),
 		ReviewedBy: []string{}, ApprovedBy: []string{}, ChangesBy: []ReviewerCount{},
 	}
 	if row.Labels == nil {
@@ -649,8 +664,10 @@ func derive(p *db.PR, events []db.Event, commits []db.Commit, verdicts map[strin
 }
 
 // ci names the head commit's combined check state the way ghp-sync's CI
-// field does; "" for a closed PR (stale) or one with no checks.
-func ci(p *db.PR) string {
+// field does; "" for a closed PR (stale) or one with no checks. No checks
+// on an old head commit is "expired": they ran, and GitHub has since
+// dropped the results.
+func ci(p *db.PR, commits []db.Commit, now time.Time) string {
 	if p.State != db.PROpen {
 		return ""
 	}
@@ -662,9 +679,47 @@ func ci(p *db.PR) string {
 	case "PENDING", "EXPECTED":
 		return "running"
 	default:
+		var head time.Time
+		for _, c := range commits {
+			if c.CommittedAt.After(head) {
+				head = c.CommittedAt
+			}
+		}
+		if head.IsZero() {
+			// no timeline fetched: the PR's last update is no earlier than its head commit
+			head = p.UpdatedAt
+		}
+		if !head.IsZero() && now.Sub(head) > ciRetention {
+			return "expired"
+		}
 		return ""
 	}
 }
+
+// withCI puts a PR's measured CI detail on its row; what was not measured
+// (-1, or a zero time) is left off.
+func withCI(row *PR, c *db.CI) {
+	if !c.RanAt.IsZero() {
+		row.CIRan = c.RanAt.Unix()
+	}
+	if row.CI == "failing" {
+		row.CIFailing = c.Failing
+		if !c.FailingSince.IsZero() {
+			row.CIFailingSince = c.FailingSince.Unix()
+		}
+	}
+	measured := func(n int) *int {
+		if n < 0 {
+			return nil
+		}
+		return &n
+	}
+	row.Behind, row.Ahead, row.CIDrift = measured(c.Behind), measured(c.Ahead), measured(c.Drift)
+}
+
+// ciRetention is how long GitHub keeps a commit's check results. Past it
+// the commit reads as never having had any.
+const ciRetention = 400 * 24 * time.Hour
 
 // reviewComments reads a review's inline comment count off the raw node
 // (`comments { totalCount }`); 0 for events fetched before it was selected.
@@ -764,13 +819,21 @@ func compact(e *db.Event) Event {
 }
 
 // areas reads the provider's layout off the changed paths: the service
-// packages touched and the kinds of change (docs, vendor, tests, ci, schema,
-// changelog, other).
+// packages touched and the kinds of change (docs, examples, contributing,
+// vendor, tests, ci, schema, changelog, other). Docs are the provider's own,
+// under website/; the example configurations and the contributor guide are
+// kinds of their own, read by different people for different reasons.
 func areas(files []string) (services, kinds []string) {
 	svc := map[string]bool{}
 	kind := map[string]bool{}
 	for _, f := range files {
 		switch {
+		case strings.HasPrefix(f, "examples/"):
+			kind["examples"] = true
+		case strings.HasPrefix(f, "contributing/") || strings.EqualFold(path.Base(f), "CONTRIBUTING.md"):
+			kind["contributing"] = true
+		case strings.HasPrefix(f, ".changelog/"):
+			kind["changelog"] = true
 		case strings.HasPrefix(f, "internal/services/"):
 			if name, _, ok := strings.Cut(strings.TrimPrefix(f, "internal/services/"), "/"); ok {
 				svc[name] = true
@@ -819,7 +882,7 @@ func areas(files []string) (services, kinds []string) {
 func effort(p *db.PR, services, kinds []string) int {
 	lines := float64(p.Additions + p.Deletions)
 	only := func(k string) bool { return len(kinds) == 1 && kinds[0] == k }
-	if only("vendor") || only("docs") || only("changelog") {
+	if only("vendor") || only("docs") || only("contributing") || only("changelog") {
 		lines *= 0.15
 	}
 	var e int

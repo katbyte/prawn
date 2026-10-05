@@ -64,6 +64,30 @@ checkout (--src-dir / PRAWN_SRC_DIR) and is skipped with a note without it; --wi
 }
 
 func run(f *cli.FlagData) error {
+	if f.Cmd.Explore.Serve == "" {
+		return build(f, syncIfStale)
+	}
+	// serving: the page goes up at once from what the db holds, and the sync a plain run would do
+	// first happens behind it as the first refresh — a slow or failing github delays fresh numbers,
+	// not the page. The refresh button syncs whatever the db's age.
+	if err := build(f, syncNever); err != nil {
+		return err
+	}
+	return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve,
+		func() error { return build(f, syncAlways) },
+		func() error { return build(f, syncIfStale) })
+}
+
+// when build syncs the database before writing the page
+const (
+	syncIfStale = iota // when the last sync is over an hour old: a plain run
+	syncAlways         // regardless: the refresh button
+	syncNever          // not at all: the page from what is there
+)
+
+// build syncs the database as sync says (never with --no-auto-fetch) and
+// writes the page.
+func build(f *cli.FlagData, sync int) error {
 	since, err := f.SinceTime()
 	if err != nil {
 		return err
@@ -76,7 +100,13 @@ func run(f *cli.FlagData) error {
 			return err
 		}
 	}
-	if !f.NoAutoFetch {
+	switch {
+	case f.NoAutoFetch || sync == syncNever: // offline, or asked not to: the db as it is
+	case sync == syncAlways:
+		if err := f.Fetch(false); err != nil {
+			return err
+		}
+	default:
 		if err := f.AutoFetch(); err != nil {
 			return err
 		}
@@ -105,6 +135,12 @@ func run(f *cli.FlagData) error {
 		return err
 	}
 	if in.Closes, err = d.AllCloses(); err != nil {
+		return err
+	}
+	if in.Diffs, err = d.AllDiffs(); err != nil {
+		return err
+	}
+	if in.CI, err = d.AllCI(); err != nil {
 		return err
 	}
 	withEvents := 0
@@ -183,9 +219,6 @@ func run(f *cli.FlagData) error {
 	cout.Printf("\nwrote <cyan>%s</>%s — <yellow>%d</> PRs since %s\n", out, size, len(data.PRs), data.Since)
 	if abs, aerr := filepath.Abs(out); aerr == nil {
 		cout.Printf("<gray>open:</> <cyan>file://%s</>\n", abs)
-	}
-	if f.Cmd.Explore.Serve != "" {
-		return serve(out, f.Cmd.Explore.Serve)
 	}
 	return nil
 }

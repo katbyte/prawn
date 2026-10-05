@@ -41,6 +41,30 @@ header .views label.plain { display: inline-block; }
 #viewctl label.plain { display: inline-block; }
 .controls { width: 100%; }
 #viewbox[hidden], #pastebox[hidden], #aibox[hidden] { display: none; }
+/* the export dialog: the columns to write, the table's own checked */
+/* the refresh's status window: what the server is printing, live */
+dialog#refreshbox { width: min(820px, calc(100vw - 44px)); }
+#rf-log { margin: 0; height: min(52vh, 460px); overflow: auto; background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font: 11.5px/1.45 ui-monospace, Menlo, monospace; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+#refreshbox button[hidden] { display: none; }
+dialog#openbox { width: min(460px, calc(100vw - 44px)); }
+#exportbox, #openbox, #refreshbox { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; width: min(680px, calc(100vw - 44px)); box-shadow: 0 6px 24px rgba(0,0,0,.2); }
+#exportbox::backdrop, #openbox::backdrop, #refreshbox::backdrop { background: rgba(0,0,0,.45); }
+#exportbox h2, #openbox h2, #refreshbox h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
+#exportbox h2 .desc, #openbox h2 .desc, #refreshbox h2 .desc { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; }
+#exportbox .pick { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+#exportbox .pick .links, #exportbox .pick .opt2 { display: flex; gap: 6px; align-items: center; font-weight: 400; color: var(--ink-2); cursor: pointer; }
+#exportbox .pick .links { margin-left: auto; } /* the first of the tick boxes pushed to the right */
+#exportbox .pick .opt2 { margin-left: 8px; }
+#exportbox .pick label:has(input:disabled) { color: var(--muted); cursor: default; }
+#exportbox .cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 3px 12px; max-height: 50vh; overflow: auto; font-size: 13px; }
+#exportbox .cols label { display: flex; gap: 6px; align-items: center; color: var(--ink-2); cursor: grab; white-space: nowrap; user-select: none; -webkit-user-select: none; }
+#exportbox .cols label.dragging { opacity: .5; }
+#exportbox .cols label.before { box-shadow: inset 3px 0 0 var(--s1); }
+#exportbox .cols label.after { box-shadow: inset -3px 0 0 var(--s1); }
+#exportbox .row, #openbox .row, #refreshbox .row { display: flex; gap: 6px; align-items: center; margin-top: 12px; }
+#exportbox .row button, #openbox .row button, #refreshbox .row button { white-space: nowrap; flex: none; } /* a long note wraps; the buttons never do */
+#exportbox .row .note, #openbox .row .note, #refreshbox .row .note { margin-right: auto; font-size: 12px; color: var(--muted); }
+#exportbox button.plain.on, #openbox button.plain.on, #refreshbox button.plain.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 #aibox { position: fixed; top: 48px; right: 22px; z-index: 22; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(0,0,0,.2); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; width: min(640px, calc(100vw - 44px)); }
 #aibox input, #aibox textarea { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--axis); border-radius: 6px; background: var(--page); color: var(--ink); width: 100%; }
 #aibox textarea { font-family: ui-monospace, Menlo, monospace; font-size: 11px; resize: vertical; color: var(--ink-2); }
@@ -91,6 +115,13 @@ header .views label.plain { display: inline-block; }
 .help summary { cursor: pointer; display: inline; color: var(--s1); }
 .help details { display: inline; }
 main { padding: 12px 22px 60px; min-width: 0; }
+/* a tab's stat tiles sit above its controls, though the tab draws them into the view below: the view's
+   children join main's column and are placed by order */
+main { display: flex; flex-direction: column; }
+#view { display: contents; }
+#view > * { order: 3; }
+#view > .tiles { order: 1; }
+#controls { order: 2; }
 
 /* the trends tab: tfpp's tree on the left, panels on the right */
 .tlayout { display: grid; grid-template-columns: var(--side, 270px) 6px minmax(0, 1fr); align-items: start; }
@@ -176,6 +207,8 @@ aside label.opt .lr button.on { background: var(--ink-2); color: var(--surface);
 .seg.multi button i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; border: 1px dashed currentColor; }
 .seg.multi button.on i { background: var(--mc); border-color: var(--mc); }
 .seg.multi.apart { margin-left: 8px; } /* the draft toggle: beside the states, not one of them */
+#f-dr button.only { background: var(--s7); color: #fff; } /* only the drafts */
+#f-dr button.only i { background: #fff; border-color: #fff; }
 #filters label .row { display: flex; align-items: center; }
 select { border: 1px solid var(--axis); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; }
 .pillbtn { font-size: 12px; padding: 2px 9px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink-2); cursor: pointer; user-select: none; }
@@ -249,11 +282,18 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 #q-table th:hover .rm { display: inline; }
 #q-table th .rm:hover { color: var(--down); }
 #colpick button.pick { min-width: 0; }
+#viewpick button.pick { min-width: 0; max-width: 260px; }
+#viewpick .pop { width: 380px; }
+#viewpick .opt .desc { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; flex: none; }
+#viewpick .opt.reset { border-bottom: 1px solid var(--grid); border-radius: 0; margin-bottom: 4px; padding-bottom: 6px; }
 #colpick .pop { width: 360px; }
 #colpick .opt .desc { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; flex: none; }
 #colpick .opt.reset { border-bottom: 1px solid var(--grid); border-radius: 0; margin-bottom: 4px; padding-bottom: 6px; }
 /* group by: a section header per group, the count and the grouping's note beside the name */
 tr.group td { font-weight: 650; color: var(--ink); background: var(--page); padding: 10px 10px 5px; border-top: none; }
+tr.group { cursor: pointer; }
+tr.group td .caret { display: inline-block; width: 14px; color: var(--muted); }
+tr.group.shut td { color: var(--ink-2); }
 tr.group td .n { color: var(--muted); font-weight: 400; margin-left: 7px; font-variant-numeric: tabular-nums; }
 tr.group td .desc { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 10px; }
 tr.pr { cursor: pointer; }
@@ -281,6 +321,10 @@ tr.detail td { background: var(--page); padding: 10px 14px 12px; }
 /* a PR's life, as one bar of its daily states */
 .life { display: flex; height: 10px; border-radius: 3px; overflow: hidden; border: 1px solid var(--border); margin: 6px 0 8px; }
 .life span { display: block; height: 100%; }
+/* ci failing: slanted red stripes laid over the bar, the state's colour showing between them */
+.life { position: relative; }
+.life span.cifail { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--down) 0 3px, transparent 3px 7px); }
+.legend i.box.stripes { background: repeating-linear-gradient(135deg, var(--down) 0 2px, transparent 2px 4px); border: 1px solid var(--down); }
 .events { font-size: 12px; columns: 2; column-gap: 24px; margin: 6px 0; }
 .events div { break-inside: avoid; color: var(--muted); }
 .events .t { font-variant-numeric: tabular-nums; margin-right: 6px; }
@@ -301,28 +345,41 @@ tr.detail td { background: var(--page); padding: 10px 14px 12px; }
   <div class="right views">
     <span id="viewhold" hidden><span id="viewctl" hidden>
     <select id="viewSel" title="saved views (this browser): the filter, the prs tab's columns and sort, and the trend panels"></select>
-    <button class="plain" id="viewSave" title="save the current state into the selected view">save</button>
-    <button class="plain" id="viewSaveAs">save as…</button>
+    <button class="plain" id="viewSave" title="save the current state as a view: asks for the name, the selected view's by default">save</button>
+    <label class="plain" title="load a view saved to a file">upload<input type="file" id="viewUp" accept=".json,application/json" hidden></label>
     <button class="plain" id="viewDel">delete</button>
-    <button class="plain" id="viewDown" title="download the view as json">download</button>
-    <label class="plain" title="load a downloaded view">upload<input type="file" id="viewUp" accept=".json,application/json" hidden></label>
-    <button class="plain" id="viewAI" title="have an AI design a view: builds a prompt with the grammar and every metric">ai</button>
-    <button class="plain" id="viewPaste" title="paste a view's json or a #hash">paste</button>
+    <button class="plain" id="viewAI" title="have an AI design a view: builds a prompt with the grammar and every metric, and takes its answer back">ai</button>
     </span></span>
     <button class="plain" id="copy-link" title="copy this view's url">copy link</button>
+    <button class="plain" id="refresh" hidden title="fetch what moved on github since this page was built, rebuild it, and reload">refresh</button>
     <button class="theme" type="button" aria-label="toggle dark mode" title="toggle dark mode"
             onclick="var h=document.documentElement,t=h.dataset.theme==='dark'?'light':'dark';h.dataset.theme=t;localStorage.setItem('prawn-theme',t)">
       <span class="sun">☀️</span><span class="moon">🌙</span><span class="prawn">🦐</span>
     </button>
   </div>
 </header>
-<div id="viewbox" hidden><input id="viewName" placeholder="view name" autocomplete="off"><button class="plain" id="viewOk">save</button><button class="plain" id="viewCancel">cancel</button></div>
+<div id="viewbox" hidden><input id="viewName" placeholder="view name" autocomplete="off"><button class="plain" id="viewOk" title="keep it in this browser's list">save</button><button class="plain" id="viewFile" title="keep it, and download it as a file to share or upload elsewhere">save to file</button><button class="plain" id="viewCancel">cancel</button></div>
+<dialog id="openbox">
+  <h2><span id="op-msg"></span><span class="desc" id="op-desc"></span></h2>
+  <div class="row"><span class="note"></span><button class="plain" id="op-cancel">cancel</button><button class="plain on" id="op-ok">open</button></div>
+</dialog>
+<dialog id="refreshbox">
+  <h2><span id="rf-head">refresh</span><span class="desc" id="rf-desc"></span></h2>
+  <pre id="rf-log"></pre>
+  <div class="row"><span class="note"></span><button class="plain" id="rf-close">close</button><button class="plain on" id="rf-again" hidden>refresh again</button><button class="plain on" id="rf-reload" hidden>reload the page</button></div>
+</dialog>
+<dialog id="exportbox">
+  <h2>export <span id="ex-n"></span><span class="desc">the table as it is filtered, sorted and grouped — every row, not only the ones drawn; <b>only shown</b> leaves out folded groups · tick the columns to write, drag one to reorder</span></h2>
+  <div class="pick">columns <button class="plain" id="ex-shown" title="the table's columns, in its order">as shown</button><button class="plain" id="ex-all">all</button><button class="plain" id="ex-none">none</button><label class="links"><input type="checkbox" id="ex-shownonly">only shown</label><label class="opt2" title="the # column links to the PR: a HYPERLINK formula in the csv, a real link in the copy"><input type="checkbox" id="ex-links" checked>PR numbers as links</label></div>
+  <div class="cols" id="ex-cols"></div>
+  <div class="row"><span class="note" id="ex-note"></span><button class="plain" id="ex-cancel">cancel</button><button class="plain" id="ex-nums" title="the PR numbers alone, space separated">copy PR numbers</button><button class="plain" id="ex-md" title="a markdown list, a PR a line: the number, the title, then the other picked columns — pastes formatted into slack, github, or a doc">copy markdown</button><button class="plain" id="ex-copy" title="tab-separated, for pasting into a spreadsheet">copy table</button><button class="plain on" id="ex-csv">download csv</button></div>
+</dialog>
 <div id="pastebox" hidden><textarea id="pasteText" placeholder="the json of a downloaded view, an AI's answer, or a #hash from a copied link" rows="5"></textarea><div class="row"><span class="err" id="pasteErr"></span><button class="plain" id="pasteOk">load</button><button class="plain" id="pasteCancel">cancel</button></div></div>
 <div id="aibox" hidden>
   <input id="aiAsk" placeholder="what should the view show? e.g. how the network service's backlog and review load changed this year" autocomplete="off">
   <textarea id="aiPrompt" readonly rows="9"></textarea>
   <div class="row" id="aiRow"></div>
-  <div class="hint">the prompt describes the page's url grammar and every metric; paste the answer back with <b>paste</b> (or upload a saved json)</div>
+  <div class="hint">the prompt describes the page's url grammar and every metric; give the answer back with <b>paste answer</b> (or upload a saved json)</div>
 </div>
 <main>
   <div id="filters"></div>
