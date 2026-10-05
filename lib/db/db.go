@@ -198,6 +198,10 @@ CREATE TABLE pr_ci (
   drift         INTEGER NOT NULL DEFAULT -1,
   fetched_at    TEXT NOT NULL DEFAULT ''
 );
+`, `
+-- how many of the head commit's workflows github is holding for a maintainer's
+-- approval (a fork's first runs): while any are, the check state says nothing
+ALTER TABLE pr_ci ADD COLUMN awaiting INTEGER NOT NULL DEFAULT 0;
 `}
 
 func (d *DB) migrate() error {

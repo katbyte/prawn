@@ -273,3 +273,17 @@ func TestAreasKinds(t *testing.T) {
 		}
 	}
 }
+
+// workflows held for approval override what the few that ran reported: a
+// green rollup from a labeller is not a passing PR
+func TestWithCIAwaitingApproval(t *testing.T) {
+	t.Parallel()
+	row := PR{CI: "passing"}
+	withCI(&row, &db.CI{Awaiting: 12, RanAt: day(3), Behind: -1, Ahead: -1, Drift: -1})
+	if row.CI != "approval" {
+		t.Errorf("ci = %q, want approval while workflows are held", row.CI)
+	}
+	if row.CIFailing != nil {
+		t.Errorf("an unapproved PR carries failing checks: %v", row.CIFailing)
+	}
+}

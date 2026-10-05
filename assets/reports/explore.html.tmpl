@@ -272,6 +272,8 @@ th, td { text-align: left; padding: 4px 10px; border-top: 1px solid var(--grid);
 th { color: var(--muted); font-weight: 600; font-size: 11px; cursor: pointer; user-select: none; white-space: nowrap; border-top: none; }
 th.on { color: var(--ink); }
 th.on::after { content: ' ▾'; } th.on.asc::after { content: ' ▴'; }
+/* the sort's direction: the header's arrow as a button beside the sort select */
+button.dirbtn { margin-left: 4px; padding: 3px 7px; line-height: 1; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* the data table's columns: drag a header to reorder, × removes it, the columns picker adds */
 #q-table th[draggable] { cursor: grab; }

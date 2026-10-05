@@ -130,7 +130,7 @@ type PR struct {
 	ApprovedBy     []string        `json:"ab"`
 	ChangesBy      []ReviewerCount `json:"cb"`
 	ReviewComments int             `json:"rc"`           // inline comments across those reviews
-	CI             string          `json:"ci,omitempty"` // the head commit's checks: passing | failing | running | expired (github dropped them), open PRs only
+	CI             string          `json:"ci,omitempty"` // the head commit's checks: passing | failing | running | approval (held for a maintainer) | expired (github dropped them), open PRs only
 	// the detail behind CI, open PRs only, as of the last fetch: when the checks last ran, which fail and since
 	// when, and how far the branch (behind, ahead) and its result (drift) have fallen behind the base branch
 	CIRan          int64    `json:"cir,omitempty"`
@@ -699,6 +699,10 @@ func ci(p *db.PR, commits []db.Commit, now time.Time) string {
 // withCI puts a PR's measured CI detail on its row; what was not measured
 // (-1, or a zero time) is left off.
 func withCI(row *PR, c *db.CI) {
+	// workflows held for a maintainer's approval: whatever the few that ran say, nothing was tested
+	if c.Awaiting > 0 {
+		row.CI = "approval"
+	}
 	if !c.RanAt.IsZero() {
 		row.CIRan = c.RanAt.Unix()
 	}

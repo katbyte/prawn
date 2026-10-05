@@ -13,6 +13,7 @@ import (
 type CI struct {
 	PRNumber     int
 	RanAt        time.Time // when the head commit's checks last finished; zero when it has none
+	Awaiting     int       // workflows held until a maintainer approves them
 	Failing      []string  // the checks failing on the head commit
 	FailingSince time.Time // when the PR was first seen failing, kept across pushes while it stays red
 	Behind       int       // commits on the base branch the PR's branch lacks, -1 unmeasured
@@ -58,12 +59,13 @@ func (d *DB) SaveCI(cis []CI, failing map[int]bool) error {
 			}
 		}
 		if _, err := tx.Exec(`
-			INSERT INTO pr_ci (pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO pr_ci (pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at, awaiting)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(pr_number) DO UPDATE SET
 				ran_at = excluded.ran_at, failing = excluded.failing, failing_since = excluded.failing_since,
-				behind = excluded.behind, ahead = excluded.ahead, drift = excluded.drift, fetched_at = excluded.fetched_at`,
-			c.PRNumber, toDBTime(c.RanAt), string(list), since, c.Behind, c.Ahead, c.Drift, toDBTime(now)); err != nil {
+				behind = excluded.behind, ahead = excluded.ahead, drift = excluded.drift, fetched_at = excluded.fetched_at,
+				awaiting = excluded.awaiting`,
+			c.PRNumber, toDBTime(c.RanAt), string(list), since, c.Behind, c.Ahead, c.Drift, toDBTime(now), c.Awaiting); err != nil {
 			return fmt.Errorf("saving ci of #%d: %w", c.PRNumber, err)
 		}
 	}
@@ -75,7 +77,7 @@ func (d *DB) SaveCI(cis []CI, failing map[int]bool) error {
 
 // AllCI returns the stored CI detail by PR number.
 func (d *DB) AllCI() (map[int]CI, error) {
-	rows, err := d.Query("SELECT pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at FROM pr_ci")
+	rows, err := d.Query("SELECT pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at, awaiting FROM pr_ci")
 	if err != nil {
 		return nil, fmt.Errorf("reading ci: %w", err)
 	}
@@ -85,7 +87,7 @@ func (d *DB) AllCI() (map[int]CI, error) {
 	for rows.Next() {
 		var c CI
 		var ranAt, failing, since, fetchedAt string
-		if err := rows.Scan(&c.PRNumber, &ranAt, &failing, &since, &c.Behind, &c.Ahead, &c.Drift, &fetchedAt); err != nil {
+		if err := rows.Scan(&c.PRNumber, &ranAt, &failing, &since, &c.Behind, &c.Ahead, &c.Drift, &fetchedAt, &c.Awaiting); err != nil {
 			return nil, fmt.Errorf("scanning ci: %w", err)
 		}
 		if err := json.Unmarshal([]byte(failing), &c.Failing); err != nil {

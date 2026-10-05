@@ -225,7 +225,7 @@ query($owner: String!, $name: String!, $cursor: String) {
     pullRequests(first: 100, after: $cursor, states: [OPEN]) {
       totalCount
       pageInfo { endCursor hasNextPage }
-      nodes { number mergeable baseRefName commits(last: 1) { nodes { commit { statusCheckRollup { state } checkSuites(last: 20) { nodes { updatedAt } } } } } }
+      nodes { number mergeable baseRefName commits(last: 1) { nodes { commit { statusCheckRollup { state } checkSuites(last: 30) { nodes { updatedAt conclusion } } } } } }
     }
   }
 }`
@@ -237,6 +237,7 @@ type OpenPRStatus struct {
 	Mergeable  string    // MERGEABLE | CONFLICTING | UNKNOWN
 	CheckState string    // the head commit's combined CI state, "" without checks
 	CIRanAt    time.Time // when the head commit's checks last finished — a re-run moves it — zero without checks
+	CIAwaiting int       // workflows on the head commit github is holding until a maintainer approves them, when they outnumber the ones that ran; else 0
 	BaseRef    string    // the branch it merges into
 }
 
@@ -266,7 +267,8 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 									} `json:"statusCheckRollup"`
 									CheckSuites struct {
 										Nodes []struct {
-											UpdatedAt time.Time `json:"updatedAt"`
+											UpdatedAt  time.Time `json:"updatedAt"`
+											Conclusion string    `json:"conclusion"`
 										} `json:"nodes"`
 									} `json:"checkSuites"`
 								} `json:"commit"`
@@ -284,10 +286,25 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 			if len(n.Commits.Nodes) > 0 {
 				head := n.Commits.Nodes[0].Commit
 				st.CheckState = head.StatusCheckRollup.State
+				// a fork's workflows wait for a maintainer's "approve and run": the few that did run
+				// (labellers, triage) can make the rollup read SUCCESS while nothing was tested. Held
+				// only counts when it outnumbers what ran — one stray held job beside a full run of
+				// checks is not a PR waiting for approval.
+				held, ran := 0, 0
 				for _, suite := range head.CheckSuites.Nodes {
 					if suite.UpdatedAt.After(st.CIRanAt) {
 						st.CIRanAt = suite.UpdatedAt
 					}
+					switch suite.Conclusion {
+					case "ACTION_REQUIRED":
+						held++
+					case "", "STARTUP_FAILURE": // still going, or never started: neither held nor run
+					default:
+						ran++
+					}
+				}
+				if held > ran {
+					st.CIAwaiting = held
 				}
 			}
 			open[n.Number] = st
@@ -304,9 +321,9 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 }
 
 var updatedPRsQuery = `
-query($query: String!, $cursor: String) {
+query($query: String!, $cursor: String, $first: Int!) {
   rateLimit { cost remaining resetAt }
-  search(query: $query, type: ISSUE, first: 10, after: $cursor) {
+  search(query: $query, type: ISSUE, first: $first, after: $cursor) {
     issueCount
     pageInfo { endCursor hasNextPage }
     nodes { ... on PullRequest {` + prFields + `} }
@@ -323,9 +340,10 @@ type UpdatedPRsPage struct {
 
 // UpdatedPRs fetches one page of PRs updated since the given time (any state).
 // The search API caps results at 1000; the caller falls back to a full walk beyond that.
-func (c *Client) UpdatedPRs(owner, name string, since time.Time, cursor string) (*UpdatedPRsPage, error) {
+func (c *Client) UpdatedPRs(owner, name string, since time.Time, cursor string, pageSize int) (*UpdatedPRsPage, error) {
 	q := fmt.Sprintf("repo:%s/%s is:pr updated:>%s sort:updated-asc", owner, name, since.UTC().Format(time.RFC3339))
 	vars := searchVars(q, cursor)
+	vars["first"] = pageSize
 
 	var resp struct {
 		RateLimit RateLimit `json:"rateLimit"`
@@ -356,6 +374,14 @@ query($query: String!, $cursor: String, $first: Int!) {
     nodes { ... on PullRequest {` + prFieldsLite + `} }
   }
 }`
+
+// UpdatedPRsPageSize is the incremental sync's normal page; one GitHub's
+// gateway keeps timing out on — a PR with an enormous timeline in it — is
+// retried a PR at a time, so one heavy PR costs its neighbours nothing.
+const (
+	UpdatedPRsPageSize  = 10
+	UpdatedPRsSmallPage = 1
+)
 
 // ClosedPRsPageSize is the backfill's normal page; a page GitHub's gateway
 // keeps timing out on (a PR with an enormous timeline in it) is retried at

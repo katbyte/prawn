@@ -190,10 +190,17 @@ func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) erro
 	}
 	cout.Printf("syncing PRs of %s updated since <yellow>%s</>...\n", f.RepoTag(), since.Format(time.RFC3339))
 
-	cursor, fetched := "", 0
+	cursor, fetched, pageSize := "", 0, gh.UpdatedPRsPageSize
 	for {
-		page, err := client.UpdatedPRs(owner, name, since, cursor)
+		page, err := client.UpdatedPRs(owner, name, since, cursor, pageSize)
 		if err != nil {
+			// a page github cannot assemble fails every retry and would stop every sync at the
+			// same PR: go on from here a PR at a time, as the backfill does
+			if pageSize > gh.UpdatedPRsSmallPage {
+				cout.Printf("  <yellow>page failed (%v) — carrying on a PR at a time</>\n", err)
+				pageSize = gh.UpdatedPRsSmallPage
+				continue
+			}
 			return err
 		}
 		if page.PRCount > 900 {
@@ -474,7 +481,7 @@ func syncCI(d *db.DB, client *gh.Client, owner, name string, open map[int]gh.Ope
 	var red []int
 	byBase := map[string]map[int]time.Time{}
 	for number, st := range open {
-		if st.CheckState == "FAILURE" || st.CheckState == "ERROR" {
+		if (st.CheckState == "FAILURE" || st.CheckState == "ERROR") && st.CIAwaiting == 0 {
 			failing[number] = true
 			red = append(red, number)
 		}
@@ -502,7 +509,7 @@ func syncCI(d *db.DB, client *gh.Client, owner, name string, open map[int]gh.Ope
 
 	cis := make([]db.CI, 0, len(open))
 	for number, st := range open {
-		ci := db.CI{PRNumber: number, RanAt: st.CIRanAt, Failing: checks[number], Behind: -1, Ahead: -1, Drift: -1}
+		ci := db.CI{PRNumber: number, RanAt: st.CIRanAt, Awaiting: st.CIAwaiting, Failing: checks[number], Behind: -1, Ahead: -1, Drift: -1}
 		if dist, ok := distances[number]; ok {
 			ci.Behind, ci.Ahead, ci.Drift = dist.Behind, dist.Ahead, dist.Drift
 		}
