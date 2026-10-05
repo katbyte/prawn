@@ -543,9 +543,9 @@ func (*Flags) deprecatedJudgeItems(d *db.DB, findings []deprecatedFinding) ([]pr
 		b.WriteString("REMOVED/DEPRECATED THINGS THE PR CHANGES OR REFERENCES:\n")
 		for _, m := range fdg.matches {
 			r := m.removal
-			what := fmt.Sprintf("%s `%s`", strings.ReplaceAll(r.Kind, "-", " "), r.Resource)
+			what := fmt.Sprintf("%s %#q", strings.ReplaceAll(r.Kind, "-", " "), r.Resource)
 			if r.Kind == pr.RemovalKindProperty {
-				what = fmt.Sprintf("property `%s` on `%s`", r.Property, r.Resource)
+				what = fmt.Sprintf("property %#q on %#q", r.Property, r.Resource)
 			}
 			line := fmt.Sprintf("- %s: %s (%s)", what, r.Action, r.Source)
 			if r.Successor != "" {

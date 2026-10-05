@@ -138,6 +138,7 @@ linters:
         - {name: argument-limit, disabled: true}           # the per-candidate helpers take the card's whole context as arguments; a struct would just rename them
         - {name: unhandled-error, disabled: true}          # errcheck covers this with sane fmt.Print* defaults and nolint support
         - {name: redundant-test-main-exit, disabled: true} # TestMain intentionally uses cleanup-then-os.Exit(code); a bare return could report success on setup failure
+        - {name: multiline-if-init, disabled: true}        # azproviderlint's AZG001 requires the err check folded into the if, multi-line call or not; the two cannot both pass
     govet:
       enable-all: true # includes nilness and other checks off by default
       disable:
