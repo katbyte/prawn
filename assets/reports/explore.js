@@ -686,21 +686,47 @@ const EXPORT_ONLY = [
   { k: 'propnames', l: 'property names', d: 'the properties the diff adds or changes', x: p => (p.pp || []).join(', ') },
 ];
 const exportCell = (c, p) => { const v = c.x ? c.x(p) : EXPORT_VALUE[c.k] ? EXPORT_VALUE[c.k](p) : plainText(c.f(p)); return v == null ? '' : String(v); };
-function openExport() {
-  const box = $('#exportbox'), shown = visibleCols().map(c => c.k);
-  // the table's columns first and in its order, then every other column, then the export-only ones
-  const all = [...visibleCols(), ...Object.values(COL).filter(c => !shown.includes(c.k)), ...EXPORT_ONLY];
-  $('#ex-n').textContent = `${fmtNum(queueRows().length)} PRs`;
-  $('#ex-cols').innerHTML = all.map(c => `<label title="${esc(c.d || '')}"><input type="checkbox" value="${c.k}"${shown.includes(c.k) ? ' checked' : ''}>${esc(c.l)}</label>`).join('');
-  $('#ex-note').textContent = '';
-  box.showModal();
+// the dialog's fields: ticked ones are written, in the order they sit — drag one to move it. It starts as the table
+// is (its columns first and in its order, ticked; then every other column; then the export-only ones) and keeps
+// what is changed while the page is open, until "as shown" puts it back
+let exportFields = null; // [[key, ticked], ...] once the ticks or the order are touched
+const exportByKey = () => Object.fromEntries([...Object.values(COL), ...EXPORT_ONLY].map(c => [c.k, c]));
+function renderExportFields() {
+  const shown = visibleCols().map(c => c.k), by = exportByKey();
+  const fields = exportFields || [...shown, ...Object.keys(COL).filter(k => !shown.includes(k)), ...EXPORT_ONLY.map(c => c.k)].map(k => [k, shown.includes(k)]);
+  $('#ex-cols').innerHTML = fields.filter(([k]) => by[k]).map(([k, on]) => `<label draggable="true" title="${esc(by[k].d || '')} — drag to reorder"><input type="checkbox" value="${k}"${on ? ' checked' : ''}>${esc(by[k].l)}</label>`).join('');
 }
+const keepExportFields = () => { exportFields = [...$('#ex-cols').querySelectorAll('input')].map(i => [i.value, i.checked]); };
+function openExport() {
+  $('#ex-n').textContent = `${fmtNum(queueRows().length)} PRs`;
+  renderExportFields();
+  $('#ex-note').textContent = '';
+  $('#exportbox').showModal();
+}
+// drag a field onto another: dropped on its left half it lands before, on its right half after (the grid reads across)
+(() => {
+  const box = $('#ex-cols'); let dragging = null;
+  const clear = () => box.querySelectorAll('.before, .after').forEach(l => l.classList.remove('before', 'after'));
+  box.addEventListener('change', keepExportFields);
+  box.addEventListener('dragstart', e => { dragging = e.target.closest('label'); if (dragging) { dragging.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragging.textContent); } });
+  box.addEventListener('dragend', () => { if (dragging) dragging.classList.remove('dragging'); dragging = null; clear(); });
+  box.addEventListener('dragover', e => {
+    const over = e.target.closest('label'); if (!dragging || !over || over === dragging) return;
+    e.preventDefault(); clear();
+    const r = over.getBoundingClientRect(); over.classList.add(e.clientX < r.left + r.width / 2 ? 'before' : 'after');
+  });
+  box.addEventListener('drop', e => {
+    const over = e.target.closest('label'); if (!dragging || !over || over === dragging) return;
+    e.preventDefault();
+    const r = over.getBoundingClientRect(); over.insertAdjacentElement(e.clientX < r.left + r.width / 2 ? 'beforebegin' : 'afterend', dragging);
+    clear(); keepExportFields();
+  });
+})();
 // links: the PR number as a link — a HYPERLINK formula in the csv (a csv has no links of its own; spreadsheets
 // run the formula), a real anchor in the copied table
-// the dialog's choices: the picked columns in the table's order, the rows, their sections when grouped
+// the dialog's choices: the ticked fields in the order they sit, the rows, their sections when grouped
 function exportPick() {
-  const picked = new Set([...$('#ex-cols').querySelectorAll('input:checked')].map(i => i.value));
-  const cols = [...visibleCols(), ...Object.values(COL), ...EXPORT_ONLY].filter((c, i, a) => picked.has(c.k) && a.findIndex(x => x.k === c.k) === i);
+  const by = exportByKey(), cols = [...$('#ex-cols').querySelectorAll('input:checked')].map(i => by[i.value]).filter(Boolean);
   const rows = queueRows();
   return { links: $('#ex-links').checked, cols, rows, sections: grouped(rows) };
 }
@@ -738,9 +764,9 @@ function exportTable(sep) {
   }
   return { text: lines.join('\n') + '\n', html: html.join('') + '</table>', n: rows.length, cols: cols.length };
 }
-$('#ex-all').addEventListener('click', () => $('#ex-cols').querySelectorAll('input').forEach(i => { i.checked = true; }));
-$('#ex-none').addEventListener('click', () => $('#ex-cols').querySelectorAll('input').forEach(i => { i.checked = false; }));
-$('#ex-shown').addEventListener('click', () => { const shown = visibleCols().map(c => c.k); $('#ex-cols').querySelectorAll('input').forEach(i => { i.checked = shown.includes(i.value); }); });
+$('#ex-all').addEventListener('click', () => { $('#ex-cols').querySelectorAll('input').forEach(i => { i.checked = true; }); keepExportFields(); });
+$('#ex-none').addEventListener('click', () => { $('#ex-cols').querySelectorAll('input').forEach(i => { i.checked = false; }); keepExportFields(); });
+$('#ex-shown').addEventListener('click', () => { exportFields = null; renderExportFields(); }); // the table's columns and order again
 $('#ex-cancel').addEventListener('click', () => $('#exportbox').close());
 $('#ex-csv').addEventListener('click', () => {
   const out = exportTable(','); if (!out.cols) { $('#ex-note').textContent = 'pick at least one column'; return; }
@@ -755,9 +781,9 @@ $('#ex-csv').addEventListener('click', () => {
 const exportCopy = (text, what, html) => (!navigator.clipboard ? Promise.reject(new Error('no clipboard'))
   : html && window.ClipboardItem ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })])
   : navigator.clipboard.writeText(text))
-  .then(() => { $('#ex-note').textContent = `copied ${what}`; }, () => { $('#ex-note').textContent = 'the browser would not copy — download the csv instead'; });
-$('#ex-copy').addEventListener('click', () => { const out = exportTable('\t'); if (!out.cols) { $('#ex-note').textContent = 'pick at least one column'; return; } exportCopy(out.text, `${fmtNum(out.n)} rows — paste into a spreadsheet`, out.html); });
-$('#ex-md').addEventListener('click', () => { const out = exportMarkdown(); exportCopy(out.text, `${fmtNum(out.n)} PRs as markdown — paste into slack, github, or a doc`, out.html); });
+  .then(() => { $('#ex-note').textContent = `copied ${what}`; }, () => { $('#ex-note').textContent = 'the browser would not copy'; });
+$('#ex-copy').addEventListener('click', () => { const out = exportTable('\t'); if (!out.cols) { $('#ex-note').textContent = 'pick at least one column'; return; } exportCopy(out.text, `${fmtNum(out.n)} rows as a table`, out.html); });
+$('#ex-md').addEventListener('click', () => { const out = exportMarkdown(); exportCopy(out.text, `${fmtNum(out.n)} PRs as markdown`, out.html); });
 $('#ex-nums').addEventListener('click', () => { const rows = queueRows(); exportCopy(rows.map(p => p.n).join(' '), `${fmtNum(rows.length)} PR numbers`); });
 // the columns picker: a popover of every column, checked when shown; a click adds it at the end or removes it
 function bindColumnPicker(cols) {

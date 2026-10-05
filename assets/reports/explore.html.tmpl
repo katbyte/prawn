@@ -50,8 +50,12 @@ dialog#openbox { width: min(460px, calc(100vw - 44px)); }
 #exportbox .pick { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
 #exportbox .pick .links { margin-left: auto; display: flex; gap: 6px; align-items: center; font-weight: 400; color: var(--ink-2); cursor: pointer; }
 #exportbox .cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 3px 12px; max-height: 50vh; overflow: auto; font-size: 13px; }
-#exportbox .cols label { display: flex; gap: 6px; align-items: center; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+#exportbox .cols label { display: flex; gap: 6px; align-items: center; color: var(--ink-2); cursor: grab; white-space: nowrap; user-select: none; -webkit-user-select: none; }
+#exportbox .cols label.dragging { opacity: .5; }
+#exportbox .cols label.before { box-shadow: inset 3px 0 0 var(--s1); }
+#exportbox .cols label.after { box-shadow: inset -3px 0 0 var(--s1); }
 #exportbox .row, #openbox .row { display: flex; gap: 6px; align-items: center; margin-top: 12px; }
+#exportbox .row button, #openbox .row button { white-space: nowrap; flex: none; } /* a long note wraps; the buttons never do */
 #exportbox .row .note, #openbox .row .note { margin-right: auto; font-size: 12px; color: var(--muted); }
 #exportbox button.plain.on, #openbox button.plain.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 #aibox { position: fixed; top: 48px; right: 22px; z-index: 22; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(0,0,0,.2); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; width: min(640px, calc(100vw - 44px)); }
@@ -343,8 +347,8 @@ tr.detail td { background: var(--page); padding: 10px 14px 12px; }
   <div class="row"><span class="note"></span><button class="plain" id="op-cancel">cancel</button><button class="plain on" id="op-ok">open</button></div>
 </dialog>
 <dialog id="exportbox">
-  <h2>export <span id="ex-n"></span><span class="desc">the table as it is filtered, sorted and grouped — every row, not only the ones drawn</span></h2>
-  <div class="pick">columns <button class="plain" id="ex-shown">as shown</button><button class="plain" id="ex-all">all</button><button class="plain" id="ex-none">none</button><label class="links" title="the # column links to the PR: a HYPERLINK formula in the csv, a real link in the copy"><input type="checkbox" id="ex-links" checked>PR numbers as links</label></div>
+  <h2>export <span id="ex-n"></span><span class="desc">the table as it is filtered, sorted and grouped — every row, not only the ones drawn · tick the columns to write, drag one to reorder</span></h2>
+  <div class="pick">columns <button class="plain" id="ex-shown" title="the table's columns, in its order">as shown</button><button class="plain" id="ex-all">all</button><button class="plain" id="ex-none">none</button><label class="links" title="the # column links to the PR: a HYPERLINK formula in the csv, a real link in the copy"><input type="checkbox" id="ex-links" checked>PR numbers as links</label></div>
   <div class="cols" id="ex-cols"></div>
   <div class="row"><span class="note" id="ex-note"></span><button class="plain" id="ex-cancel">cancel</button><button class="plain" id="ex-nums" title="the PR numbers alone, space separated">copy PR numbers</button><button class="plain" id="ex-md" title="a markdown list, a PR a line: the number, the title, then the other picked columns — pastes formatted into slack, github, or a doc">copy markdown</button><button class="plain" id="ex-copy" title="tab-separated, for pasting into a spreadsheet">copy table</button><button class="plain on" id="ex-csv">download csv</button></div>
 </dialog>
