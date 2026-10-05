@@ -131,6 +131,7 @@ type PR struct {
 	ChangesBy      []ReviewerCount `json:"cb"`
 	ReviewComments int             `json:"rc"`           // inline comments across those reviews
 	CI             string          `json:"ci,omitempty"` // the head commit's checks: passing | failing | running, open PRs only
+	Props          []string        `json:"pp,omitempty"` // the schema properties the diff adds or changes on existing resources, open PRs only
 
 	FirstResponseDays float64 `json:"fr"` // days to the first maintainer response, -1 when none yet
 	FirstResponder    string  `json:"fw,omitempty"`
@@ -209,6 +210,7 @@ type Input struct {
 	Commits  map[int][]db.Commit
 	Verdicts map[int]map[string]db.Verdict
 	Closes   map[int][]db.LinkedIssue
+	Diffs    map[int]string // unified diffs, stored for the open set only
 }
 
 // labels and milestones the state machine reads
@@ -272,6 +274,7 @@ func Build(in Input, cfg Config) *Data {
 	d.PRs = make([]PR, 0, len(in.PRs))
 	for _, p := range in.PRs {
 		row := derive(p, in.Events[p.Number], in.Commits[p.Number], in.Verdicts[p.Number], in.Closes[p.Number], maint, partners, now)
+		row.Props = Properties(in.Diffs[p.Number])
 		if g, ok := groupOf[strings.ToLower(p.Author)]; ok {
 			row.Group = g
 		} else {

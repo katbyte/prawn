@@ -2,6 +2,7 @@ package explore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,8 +19,9 @@ import (
 
 // serve keeps the written page available over http until interrupted, so
 // other machines on the network can open it — the page is one file with
-// its data embedded, so this is a file server for exactly that file.
-func serve(path, addr string) error {
+// its data embedded, so this is a file server for exactly that file, plus
+// /refresh: the page's button to sync and rebuild it.
+func serve(path, addr string, rebuild func() error) error {
 	if !strings.Contains(addr, ":") {
 		addr = ":" + addr // a bare port
 	}
@@ -31,6 +34,7 @@ func serve(path, addr string) error {
 		w.Header().Set("Cache-Control", "no-cache") // a regenerated page must win over a cached one
 		http.ServeFile(w, r, path)
 	})
+	mux.Handle("/refresh", &refresher{run: rebuild})
 	srv := &http.Server{Addr: addr, Handler: logged(mux), ReadHeaderTimeout: 10 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -64,6 +68,86 @@ func serve(path, addr string) error {
 	}
 }
 
+// refreshGap is how soon after a refresh another may start: the button is
+// for "it moved since I opened this", not for holding down.
+const refreshGap = 30 * time.Second
+
+// refresher is the page's refresh button: POST starts a sync and rebuild
+// unless one is running or only just finished, GET reports how it is going.
+// One runs at a time, whoever asked; the page polls and reloads when it ends.
+type refresher struct {
+	run func() error
+
+	mu       sync.Mutex
+	running  bool
+	started  time.Time
+	finished time.Time
+	by       string
+	err      string
+}
+
+// refreshStatus is what the page polls.
+type refreshStatus struct {
+	Running  bool   `json:"running"`
+	Started  string `json:"started,omitempty"`
+	Finished string `json:"finished,omitempty"`
+	By       string `json:"by,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+func (rf *refresher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		// a header a form on another site cannot send, so only this page's own script starts a refresh
+		if r.Header.Get("X-Prawn") == "" {
+			http.Error(w, "refresh is the page's own button", http.StatusForbidden)
+			return
+		}
+		rf.start(viewer(r))
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(rf.status())
+}
+
+// start kicks off a refresh unless one is running or one finished moments ago.
+func (rf *refresher) start(by string) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.running || (!rf.finished.IsZero() && time.Since(rf.finished) < refreshGap) {
+		return
+	}
+	rf.running, rf.started, rf.by, rf.err = true, time.Now(), by, ""
+	go func() {
+		err := rf.run()
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+		rf.running, rf.finished = false, time.Now()
+		if err != nil {
+			rf.err = err.Error()
+			cout.Printf("<red>refresh failed:</> %v\n", err)
+		}
+	}()
+}
+
+func (rf *refresher) status() refreshStatus {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	st := refreshStatus{Running: rf.running, By: rf.by, Error: rf.err}
+	if !rf.started.IsZero() {
+		st.Started = rf.started.UTC().Format(time.RFC3339)
+	}
+	if !rf.finished.IsZero() {
+		st.Finished = rf.finished.UTC().Format(time.RFC3339)
+	}
+	return st
+}
+
 // userHeaders are where a login-aware proxy in front (traefik's github auth
 // plugins, oauth2-proxy, authelia) puts the viewer's login; the first one set
 // names the viewer in the log. They mean nothing without such a proxy — any
@@ -77,6 +161,9 @@ func logged(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
+		if r.Method == http.MethodGet && r.URL.Path == "/refresh" {
+			return // the page polling a refresh: every few seconds, and nothing anyone did
+		}
 		cout.Printf("<gray>%s</> %s <cyan>%s</> %s %s %s <gray>%s %s</>\n",
 			start.Format("2006-01-02 15:04:05"), viewer(r), from(r), r.Method, r.URL.Path, statusColour(sw.status), humanSize(sw.bytes), time.Since(start).Round(time.Millisecond))
 	})

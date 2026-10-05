@@ -64,6 +64,19 @@ checkout (--src-dir / PRAWN_SRC_DIR) and is skipped with a note without it; --wi
 }
 
 func run(f *cli.FlagData) error {
+	if err := build(f, false); err != nil {
+		return err
+	}
+	if f.Cmd.Explore.Serve != "" {
+		// the page's refresh button: sync now, whatever the db's age, and swap in a new page
+		return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve, func() error { return build(f, true) })
+	}
+	return nil
+}
+
+// build syncs the database (when it is stale, or regardless with force) and
+// writes the page.
+func build(f *cli.FlagData, force bool) error {
 	since, err := f.SinceTime()
 	if err != nil {
 		return err
@@ -76,7 +89,13 @@ func run(f *cli.FlagData) error {
 			return err
 		}
 	}
-	if !f.NoAutoFetch {
+	switch {
+	case f.NoAutoFetch: // offline: the db as it is
+	case force:
+		if err := f.Fetch(false); err != nil {
+			return err
+		}
+	default:
 		if err := f.AutoFetch(); err != nil {
 			return err
 		}
@@ -105,6 +124,9 @@ func run(f *cli.FlagData) error {
 		return err
 	}
 	if in.Closes, err = d.AllCloses(); err != nil {
+		return err
+	}
+	if in.Diffs, err = d.AllDiffs(); err != nil {
 		return err
 	}
 	withEvents := 0
@@ -183,9 +205,6 @@ func run(f *cli.FlagData) error {
 	cout.Printf("\nwrote <cyan>%s</>%s — <yellow>%d</> PRs since %s\n", out, size, len(data.PRs), data.Since)
 	if abs, aerr := filepath.Abs(out); aerr == nil {
 		cout.Printf("<gray>open:</> <cyan>file://%s</>\n", abs)
-	}
-	if f.Cmd.Explore.Serve != "" {
-		return serve(out, f.Cmd.Explore.Serve)
 	}
 	return nil
 }
