@@ -694,7 +694,8 @@ const exportByKey = () => Object.fromEntries([...Object.values(COL), ...EXPORT_O
 function renderExportFields() {
   const shown = visibleCols().map(c => c.k), by = exportByKey();
   const fields = exportFields || [...shown, ...Object.keys(COL).filter(k => !shown.includes(k)), ...EXPORT_ONLY.map(c => c.k)].map(k => [k, shown.includes(k)]);
-  $('#ex-cols').innerHTML = fields.filter(([k]) => by[k]).map(([k, on]) => `<label draggable="true" title="${esc(by[k].d || '')} — drag to reorder"><input type="checkbox" value="${k}"${on ? ' checked' : ''}>${esc(by[k].l)}</label>`).join('');
+  // each field is written from its column, looked up by the remembered key: nothing read back from the page reaches the html
+  $('#ex-cols').innerHTML = fields.map(([k, on]) => [by[k], on]).filter(([c]) => c).map(([c, on]) => `<label draggable="true" title="${esc(c.d || '')} — drag to reorder"><input type="checkbox" value="${esc(c.k)}"${on ? ' checked' : ''}>${esc(c.l)}</label>`).join('');
 }
 const keepExportFields = () => { exportFields = [...$('#ex-cols').querySelectorAll('input')].map(i => [i.value, i.checked]); };
 function openExport() {
