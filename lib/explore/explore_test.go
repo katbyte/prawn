@@ -1,6 +1,7 @@
 package explore
 
 import (
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -137,7 +138,7 @@ func TestCI(t *testing.T) {
 		{db.PRClosed, "FAILURE", ""},
 	}
 	for _, tc := range cases {
-		if got := ci(&db.PR{State: tc.state, CheckState: tc.check}); got != tc.want {
+		if got := ci(&db.PR{State: tc.state, CheckState: tc.check}, nil, day(500)); got != tc.want {
 			t.Errorf("ci(%s, %q) = %q, want %q", tc.state, tc.check, got, tc.want)
 		}
 	}
@@ -193,6 +194,82 @@ func TestDeriveReviewSides(t *testing.T) {
 	for i, iv := range row.Statuses {
 		if iv.State != want[i] {
 			t.Errorf("status %d = %d, want %d", i, iv.State, want[i])
+		}
+	}
+}
+
+// no result on the head commit: not run when the commit is recent, expired
+// once it is older than github keeps check results
+func TestCIExpired(t *testing.T) {
+	t.Parallel()
+	now := day(500)
+	fresh, old := []db.Commit{{CommittedAt: day(450)}}, []db.Commit{{CommittedAt: day(10)}, {CommittedAt: day(40)}}
+	cases := []struct {
+		name    string
+		p       db.PR
+		commits []db.Commit
+		want    string
+	}{
+		{"a result is the result, however old the commit", db.PR{State: db.PROpen, CheckState: "FAILURE"}, old, "failing"},
+		{"no result on a recent commit: not run", db.PR{State: db.PROpen}, fresh, ""},
+		{"no result on a commit past github's retention: expired", db.PR{State: db.PROpen}, old, "expired"},
+		{"no commits known: not run", db.PR{State: db.PROpen}, nil, ""},
+		{"no commits known, last updated recently: not run", db.PR{State: db.PROpen, UpdatedAt: day(450)}, nil, ""},
+		{"no commits known, untouched past the retention: expired", db.PR{State: db.PROpen, UpdatedAt: day(40)}, nil, "expired"},
+		{"a closed PR has none", db.PR{State: db.PRClosed, CheckState: "SUCCESS"}, old, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ci(&c.p, c.commits, now); got != c.want {
+				t.Errorf("ci() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// the measured detail lands on the row: the failing checks and their clock
+// only while the PR is red, and nothing for what was not measured
+func TestWithCI(t *testing.T) {
+	t.Parallel()
+	c := db.CI{RanAt: day(3), Failing: []string{"unit-tests"}, FailingSince: day(1), Behind: 0, Ahead: 7, Drift: -1}
+
+	red := PR{CI: "failing"}
+	withCI(&red, &c)
+	if red.CIRan != day(3).Unix() || len(red.CIFailing) != 1 || red.CIFailingSince != day(1).Unix() {
+		t.Errorf("a failing PR's row = ran %d, failing %v since %d", red.CIRan, red.CIFailing, red.CIFailingSince)
+	}
+	if red.Behind == nil || *red.Behind != 0 || red.Ahead == nil || *red.Ahead != 7 {
+		t.Errorf("behind/ahead = %v/%v, want 0 and 7 (zero is a measurement)", red.Behind, red.Ahead)
+	}
+	if red.CIDrift != nil {
+		t.Errorf("drift = %d, want it left off when unmeasured", *red.CIDrift)
+	}
+
+	green := PR{CI: "passing"}
+	withCI(&green, &c)
+	if green.CIFailing != nil || green.CIFailingSince != 0 {
+		t.Errorf("a passing PR carries failing detail: %v since %d", green.CIFailing, green.CIFailingSince)
+	}
+}
+
+// the docs a PR touches are three kinds: the provider's, the examples, and
+// the contributor guide; a .changelog entry is changelog, not "other"
+func TestAreasKinds(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		files []string
+		want  []string
+	}{
+		{[]string{"website/docs/r/storage_account.html.markdown"}, []string{"docs"}},
+		{[]string{"examples/api-management/main.tf", "examples/api-management/function_code/handler.go"}, []string{"examples"}},
+		{[]string{"contributing/topics/guide-new-resource.md", "CONTRIBUTING.md"}, []string{"contributing"}},
+		{[]string{".changelog/12345.txt", "internal/services/storage/storage_account_resource.go"}, []string{"changelog", "schema"}},
+		{[]string{"README.md"}, []string{"other"}},
+	}
+	for _, c := range cases {
+		if _, got := areas(c.files); !slices.Equal(got, c.want) {
+			t.Errorf("areas(%v) kinds = %v, want %v", c.files, got, c.want)
 		}
 	}
 }

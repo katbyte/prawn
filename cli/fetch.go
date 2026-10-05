@@ -11,11 +11,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/katbyte/go-kt/clog"
 	"github.com/katbyte/go-kt/cout"
 	"github.com/katbyte/prawn/lib/db"
 	"github.com/katbyte/prawn/lib/gh"
@@ -450,6 +452,66 @@ func (*FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) erro
 		return err
 	}
 	cout.Verbosef("  <gray>reconcile: mergeability and CI refreshed on %d open PRs, %d changed</>\n", len(statuses), changed)
+
+	// the detail behind the CI state is worth having and not worth failing a fetch over
+	current := make(map[int]gh.OpenPRStatus, len(statuses))
+	for number := range statuses {
+		current[number] = open[number]
+	}
+	if err := syncCI(d, client, owner, name, current); err != nil {
+		clog.Log.Warnf("ci detail not refreshed: %v", err)
+	}
+	return nil
+}
+
+// syncCI measures what stands behind each open PR's CI state: which checks
+// fail (asked only of the red ones), how far behind its base the branch is,
+// and how many commits the base has had since the checks last ran. A few
+// dozen requests a fetch; the walk that produced open already carries when
+// the checks ran.
+func syncCI(d *db.DB, client *gh.Client, owner, name string, open map[int]gh.OpenPRStatus) error {
+	failing := map[int]bool{}
+	var red []int
+	byBase := map[string]map[int]time.Time{}
+	for number, st := range open {
+		if st.CheckState == "FAILURE" || st.CheckState == "ERROR" {
+			failing[number] = true
+			red = append(red, number)
+		}
+		if st.BaseRef != "" {
+			if byBase[st.BaseRef] == nil {
+				byBase[st.BaseRef] = map[int]time.Time{}
+			}
+			byBase[st.BaseRef][number] = st.CIRanAt
+		}
+	}
+	slices.Sort(red)
+
+	checks, err := client.FailingChecks(owner, name, red)
+	if err != nil {
+		return err
+	}
+	distances := map[int]gh.BaseDistance{}
+	for base, prs := range byBase {
+		ds, err := client.BaseDistances(owner, name, base, prs)
+		if err != nil {
+			return err
+		}
+		maps.Copy(distances, ds)
+	}
+
+	cis := make([]db.CI, 0, len(open))
+	for number, st := range open {
+		ci := db.CI{PRNumber: number, RanAt: st.CIRanAt, Failing: checks[number], Behind: -1, Ahead: -1, Drift: -1}
+		if dist, ok := distances[number]; ok {
+			ci.Behind, ci.Ahead, ci.Drift = dist.Behind, dist.Ahead, dist.Drift
+		}
+		cis = append(cis, ci)
+	}
+	if err := d.SaveCI(cis, failing); err != nil {
+		return err
+	}
+	cout.Verbosef("  <gray>reconcile: ci detail on %d open PRs — %d failing, %d measured against their base</>\n", len(cis), len(red), len(distances))
 	return nil
 }
 

@@ -64,19 +64,30 @@ checkout (--src-dir / PRAWN_SRC_DIR) and is skipped with a note without it; --wi
 }
 
 func run(f *cli.FlagData) error {
-	if err := build(f, false); err != nil {
+	if f.Cmd.Explore.Serve == "" {
+		return build(f, syncIfStale)
+	}
+	// serving: the page goes up at once from what the db holds, and the sync a plain run would do
+	// first happens behind it as the first refresh — a slow or failing github delays fresh numbers,
+	// not the page. The refresh button syncs whatever the db's age.
+	if err := build(f, syncNever); err != nil {
 		return err
 	}
-	if f.Cmd.Explore.Serve != "" {
-		// the page's refresh button: sync now, whatever the db's age, and swap in a new page
-		return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve, func() error { return build(f, true) })
-	}
-	return nil
+	return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve,
+		func() error { return build(f, syncAlways) },
+		func() error { return build(f, syncIfStale) })
 }
 
-// build syncs the database (when it is stale, or regardless with force) and
+// when build syncs the database before writing the page
+const (
+	syncIfStale = iota // when the last sync is over an hour old: a plain run
+	syncAlways         // regardless: the refresh button
+	syncNever          // not at all: the page from what is there
+)
+
+// build syncs the database as sync says (never with --no-auto-fetch) and
 // writes the page.
-func build(f *cli.FlagData, force bool) error {
+func build(f *cli.FlagData, sync int) error {
 	since, err := f.SinceTime()
 	if err != nil {
 		return err
@@ -90,8 +101,8 @@ func build(f *cli.FlagData, force bool) error {
 		}
 	}
 	switch {
-	case f.NoAutoFetch: // offline: the db as it is
-	case force:
+	case f.NoAutoFetch || sync == syncNever: // offline, or asked not to: the db as it is
+	case sync == syncAlways:
 		if err := f.Fetch(false); err != nil {
 			return err
 		}
@@ -127,6 +138,9 @@ func build(f *cli.FlagData, force bool) error {
 		return err
 	}
 	if in.Diffs, err = d.AllDiffs(); err != nil {
+		return err
+	}
+	if in.CI, err = d.AllCI(); err != nil {
 		return err
 	}
 	withEvents := 0

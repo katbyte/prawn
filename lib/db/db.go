@@ -183,6 +183,21 @@ CREATE INDEX idx_commits_pr ON commits(pr_number, committed_at);
 -- the combined CI state of the head commit (SUCCESS, FAILURE, ERROR, PENDING,
 -- EXPECTED, '' when there are no checks), as fetched; stale once a PR closes
 ALTER TABLE prs ADD COLUMN check_state TEXT NOT NULL DEFAULT '';
+`, `
+-- the detail behind check_state, refreshed for every open PR on every fetch:
+-- when the head commit's checks last finished, which ones fail, since when the
+-- PR has been failing (kept across pushes while it stays red), and how far the
+-- branch and its result have fallen behind the base. -1 is "not measured".
+CREATE TABLE pr_ci (
+  pr_number     INTEGER PRIMARY KEY,
+  ran_at        TEXT NOT NULL DEFAULT '',
+  failing       TEXT NOT NULL DEFAULT '[]',
+  failing_since TEXT NOT NULL DEFAULT '',
+  behind        INTEGER NOT NULL DEFAULT -1,
+  ahead         INTEGER NOT NULL DEFAULT -1,
+  drift         INTEGER NOT NULL DEFAULT -1,
+  fetched_at    TEXT NOT NULL DEFAULT ''
+);
 `}
 
 func (d *DB) migrate() error {

@@ -9,10 +9,10 @@ const MAINT = new Set(D.maintainers.map(s => s.toLowerCase()));
 const PARTNERS = new Set((D.partners || []).map(s => s.toLowerCase()));
 const GROUP_NAMES = Object.keys(D.groups || {}).sort();
 const STATE_NAMES = ['draft', 'awaiting', 'waiting', 'approved', 'blocked'];
-const STATE_COLORS = ['var(--other)', 'var(--s1)', 'var(--s4)', 'var(--s3)', 'var(--s8)'];
+const STATE_COLORS = ['var(--other)', 'var(--s1)', 'var(--s4)', 'var(--s3)', 'var(--s2)']; // blocked is orange: red is ci's, striped over the bar
 const STATE_DESC = ['draft — not up for review yet', 'awaiting — the maintainers\' court', 'waiting — the author\'s court (waiting-response, or changes requested and nothing pushed)', 'approved — waiting on a merge', 'blocked — the Blocked milestone'];
 const PALETTE = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s7)', 'var(--s6)', 'var(--s8)'];
-const KINDS = ['schema', 'code', 'tests', 'docs', 'vendor', 'ci', 'changelog', 'other'];
+const KINDS = ['schema', 'code', 'tests', 'docs', 'examples', 'contributing', 'vendor', 'ci', 'changelog', 'other'];
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -75,6 +75,7 @@ const KEYS = {
   author: p => p.lo, a: p => p.lo, group: p => p.g, g: p => p.g, svc: p => p.sv, service: p => p.sv, s: p => p.sv,
   kind: p => p.k, k: p => p.k, only: p => p.k.length === 1 ? p.k[0] : 'mixed', label: p => p.l, l: p => p.l, court: p => p.ct, c: p => p.ct, state: p => p.s, st: p => p.s,
   effort: p => p.ef, e: p => p.ef, age: p => p.age, idle: p => p.idle, size: p => p.size, files: p => p.f, rounds: p => p.rr,
+  ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], behind: p => p.bh ?? null, ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
   props: p => (p.pp || []).length, prop: p => p.pp || [], // how many schema properties the diff touches, and which
   fr: p => p.fr < 0 ? null : p.fr, reviewer: p => p.rw, r: p => p.rw, n: p => p.n, title: p => p.tl, t: p => p.tl,
   draft: p => p.d ? 'yes' : 'no', approved: p => p.approved ? 'yes' : 'no', decision: p => p.rd || 'none', rd: p => p.rd || 'none', milestone: p => p.ms || '', ms: p => p.ms || '',
@@ -143,7 +144,8 @@ function applyFilter() {
     if (kinds && !(p.k.length && p.k.every(k => kinds.includes(k)))) return false; // only those kinds, nothing else
     if (labels && !labels.some(l => p.l.some(x => x.toLowerCase() === l || x.toLowerCase().startsWith(l)))) return false;
     if (S.ct && p.ct !== S.ct) return false;
-    if (S.dr && !p.d) return false; // drafts only
+    if (S.dr === 'yes' && !p.d) return false; // only the drafts
+    if (S.dr === 'no' && p.d) return false; // no drafts
     if (p.ef < efLo || p.ef > efHi) return false;
     for (const t of terms) if (matchTerm(p, t) === !!t.neg) return false;
     return true;
@@ -162,11 +164,11 @@ function renderFilters() {
   el.innerHTML = `
     <label>from<input type="date" id="f-from" value="${esc(S.from)}"></label>
     <label>to<input type="date" id="f-to" value="${esc(S.to)}"></label>
-    <label>state<div class="row">${segMulti('f-st', ['open', 'merged', 'closed'], stateFilter(), STATE_MC)}<div class="seg multi apart" id="f-dr" title="on: only drafts"><button data-v="yes" class="${S.dr ? 'on' : ''}" style="--mc:${STATE_COLORS[0]}"><i></i>draft</button></div></div></label>
+    <label>state<div class="row">${segMulti('f-st', ['open', 'merged', 'closed'], stateFilter(), STATE_MC)}<div class="seg multi apart" id="f-dr"><button style="--mc:var(--ink-2)"><i></i>draft</button></div></div></label>
     <label>group<select id="f-g">${opt('', 'any', S.g)}${GROUP_NAMES.map(g => opt(g, g, S.g)).join('')}${opt('community', 'community', S.g)}</select></label>
     <div class="fl">author${picker('f-a', 'a', countBy(p => [p.a]), 'any author')}</div>
     <div class="fl">service${picker('f-svc', 'svc', countBy(p => p.sv), 'any service')}</div>
-    <div class="fl">kind${picker('f-k', 'k', KINDS.map(k => [k, D.prs.filter(p => p.k.length && p.k.every(x => x === k)).length]), 'any kind', 'PRs made of only the picked kinds, from their changed files: schema (resource/data source .go), code (other .go), tests (_test.go), docs (website/), vendor (vendor/, go.mod), ci (.github/, scripts/), changelog; the counts are PRs of exactly that one kind')}</div>
+    <div class="fl">kind${picker('f-k', 'k', KINDS.map(k => [k, D.prs.filter(p => p.k.length && p.k.every(x => x === k)).length]), 'any kind', 'PRs made of only the picked kinds, from their changed files: schema (resource/data source .go), code (other .go), tests (_test.go), docs (website/, the provider docs), examples (examples/), contributing (contributing/, the contributor guide), vendor (vendor/, go.mod), ci (.github/, scripts/), changelog (.changelog/, CHANGELOG.md); the counts are PRs of exactly that one kind')}</div>
     <div class="fl">label${picker('f-l', 'l', countBy(p => p.l), 'any label')}</div>
     <label>court<select id="f-ct">${opt('', 'any', S.ct)}${opt('maintainer', 'maintainer', S.ct)}${opt('author', 'author', S.ct)}</select></label>
     <label>effort<select id="f-ef">${opt('', 'any', S.ef)}${['1-1', '1-2', '1-3', '2-5', '3-5', '4-5', '5-5'].map(r => opt(r, r.replace('-', '–'), S.ef)).join('')}</select></label>
@@ -184,16 +186,27 @@ function renderFilters() {
     set(key, (cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]).join(','));
   });
   togglePills('#f-st', 'st');
-  $('#f-dr').addEventListener('click', () => set('dr', S.dr ? '' : 'yes'));
+  $('#f-dr').addEventListener('click', () => set('dr', DRAFT_NEXT[S.dr] ?? ''));
+  syncDraft();
   $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
-    keys: <code>author group svc kind only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind:docs</code> touches docs, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, none).
+    keys: <code>author group svc kind only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind:docs</code> touches docs, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>behind</code> and <code>drift</code> commits against the base branch).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
 }
 
+// the draft button has three states, a click going round them: off (no drafts), lit (drafts shown with the
+// rest, as the page opens), purple (only the drafts)
+const DRAFT_NEXT = { no: '', '': 'yes', yes: 'no' };
+const DRAFT_TITLE = { no: 'drafts are hidden — click to show them with the rest', '': 'drafts are shown with the rest — click for only the drafts', yes: 'only the drafts — click to hide drafts' };
+function syncDraft() {
+  const b = $('#f-dr button'); if (!b) return;
+  b.classList.toggle('on', !S.dr); b.classList.toggle('only', S.dr === 'yes');
+  b.title = DRAFT_TITLE[S.dr] ?? DRAFT_TITLE[''];
+}
 // the toggle buttons and pickers reflect the state after every change, without rebuilding the bar (which would drop focus)
 function syncFilterButtons() {
-  for (const [id, key] of [['#f-st', 'st'], ['#f-dr', 'dr']]) {
+  syncDraft();
+  for (const [id, key] of [['#f-st', 'st']]) {
     const val = key === 'st' ? stateFilter() : S[key];
     const on = val ? val.split(',') : [];
     document.querySelectorAll(id + ' button').forEach(b => b.classList.toggle('on', on.includes(b.dataset.v)));
@@ -232,8 +245,8 @@ function bindPickers() {
 // ---- tabs ----
 const TABS = [['prs', 'prs'], ['trends', 'trends'], ['suggested', 'suggested'], ['services', 'services'], ['people', 'people'], ['checks', 'checks']];
 function renderTabs() {
-  const show = SHOWS.find(sh => sh[0] === S.sh); // the prs tab's show narrows its table, so its count too
-  const counts = { prs: show ? M.filter(show[2]).length : M.length, trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: M.reduce((n, p) => n + p.checks.length, 0) };
+  const counts = { prs: queueRows().length, // the prs tab's show, and a grouping that drops PRs, narrow its table: so its count too
+    trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: M.reduce((n, p) => n + p.checks.length, 0) };
   // the tab is the header's dropdown, where the page's name was; the controls row keeps the tab's own controls
   $('#tabSel').innerHTML = TABS.map(([id, label]) => `<option value="${id}"${S.tab === id ? ' selected' : ''}>${label} · ${fmtNum(counts[id])}</option>`).join('');
   $('#controls').innerHTML = `<span id="tabctl" style="display:contents"></span>`;
@@ -517,7 +530,29 @@ col('wc', 'cycles', 'waiting-response cycles', p => p.wc || '—', p => p.wc, { 
 col('td', 'resolved in', 'days open until merged or closed', p => p.td < 0 ? '—' : fmtDays(p.td), p => p.td < 0 ? null : p.td, { cls: 'num', hi: true });
 col('rd', 'decision', "github's review decision", p => esc((p.rd || '').replace(/_/g, ' ')), p => p.rd || LAST);
 col('mg', 'mergeable', "github's mergeability", p => p.mg === 'conflicting' ? '<span class="bad">conflicting</span>' : esc(p.mg || ''), p => p.mg || LAST);
-col('ci', 'ci', "the head commit's checks: passing, failing, running — or not run, when an open PR's head commit has none", p => p.ci ? `<span class="${{ passing: 'ok', failing: 'bad', running: 'mid' }[p.ci]}">${p.ci}</span>` : p.s === 'open' ? '<span class="dim">not run</span>' : '', p => p.ci || (p.s === 'open' ? 'not run' : LAST));
+col('ci', 'ci', "the head commit's checks: passing, failing, running; expired when github has dropped them (it keeps 400 days), not run when a recent head commit has none", p => p.ci ? `<span class="${{ passing: 'ok', failing: 'bad', running: 'mid', expired: 'dim' }[p.ci]}">${p.ci}</span>` : p.s === 'open' ? '<span class="dim">not run</span>' : '', p => p.ci || (p.s === 'open' ? 'not run' : LAST));
+// the detail behind ci, as of the last fetch: when the checks ran, what fails and since when, and how far main has moved
+const ciAge = p => p.cir ? (NOW - p.cir) / DAY : null; // days since the head commit's checks last finished
+const failingFor = p => p.cis ? (NOW - p.cis) / DAY : null; // days since the PR was first seen failing — pushes that fail again do not restart it
+const commits = n => `${fmtNum(n)} commit${n === 1 ? '' : 's'}`;
+// the PR detail's ci row: the state and how long it has stood, what fails, when it last ran, and how far main has moved
+function ciLine(p) {
+  let head = `<span class="${{ passing: 'ok', failing: 'bad', running: 'mid', expired: 'dim' }[p.ci] || 'dim'}">${p.ci || 'not run'}</span>`;
+  if (p.ci === 'failing' && p.cis) head += ` for ${fmtDays(failingFor(p))}`;
+  const parts = [head];
+  if (p.ci === 'failing') parts.push((p.cif || []).length ? p.cif.map(c => `<span class="badge clk" data-q="failing:${esc(c)}">${esc(c)}</span>`).join('') : 'which check is not known');
+  if (p.ci === 'expired') parts.push('github keeps check results 400 days — a new commit runs them again');
+  if (!p.ci) parts.push('no checks on the head commit');
+  if (p.cir) parts.push(`last ran ${fmtDate(p.cir)}, ${fmtDays(ciAge(p))} ago`);
+  if (p.bh != null) parts.push(p.bh ? `${commits(p.bh)} behind its base` : 'up to date with its base');
+  if (p.cdr != null) parts.push(p.cdr ? `the base has had ${commits(p.cdr)} since the run` : 'nothing has landed on the base since the run');
+  return parts.join(' · ');
+}
+col('ciage', 'ci age', "how long ago the head commit's checks last ran — a re-run counts", p => p.cir ? fmtDays(ciAge(p)) : '', p => ciAge(p) ?? -1, { cls: 'num', hi: true });
+col('cifor', 'failing for', 'how long ci has been failing: since it was first seen red, through any pushes that failed again', p => p.cis ? `<span class="bad">${fmtDays(failingFor(p))}</span>` : '', p => failingFor(p) ?? -1, { cls: 'num', hi: true });
+col('cifail', 'failing checks', 'the checks failing on the head commit', p => (p.cif || []).map(c => `<span class="badge clk" data-q="failing:${esc(c)}">${esc(c)}</span>`).join(''), p => (p.cif || [])[0] || LAST);
+col('behind', 'behind', "commits on the base branch the PR's branch does not have", p => p.bh == null ? '' : fmtNum(p.bh), p => p.bh ?? -1, { cls: 'num', hi: true });
+col('drift', 'ci drift', 'commits the base branch has had since the checks last ran: how stale the result is', p => p.cdr == null ? '' : fmtNum(p.cdr), p => p.cdr ?? -1, { cls: 'num', hi: true });
 col('mb', 'merged by', 'who merged it', p => p.mb ? `<span class="clk" data-q="mergedby:${esc(p.mb)}">${esc(p.mb)}</span>` : '', p => p.mb || LAST);
 col('c', 'created', 'when it opened', p => fmtDate(p.c), p => p.c, { cls: 'num', hi: true });
 col('x', 'closed', 'when it closed', p => p.x ? fmtDate(p.x) : '', p => p.x || 0, { cls: 'num', hi: true });
@@ -544,7 +579,9 @@ function colSorter(k) {
 const propCount = p => (p.pp || []).length;
 const SHOWS = [
   ['approved', 'approved', p => p.approved],
-  ['docs', 'docs only', p => only(p, 'docs', 'changelog')],
+  ['docs', 'provider docs only', p => only(p, 'docs', 'changelog')],
+  ['examples', 'examples only', p => only(p, 'examples', 'changelog')],
+  ['contributing', 'contributing docs only', p => only(p, 'contributing', 'changelog')],
   ['tests', 'ci/test only', p => only(p, 'tests', 'ci')],
   ['prop1', 'single property', p => propCount(p) === 1],
   ['prop2-4', '2–4 properties', p => propCount(p) >= 2 && propCount(p) <= 4],
@@ -556,8 +593,11 @@ const VIEWS = [
   ['>30d', 'state:open label:waiting-response cd>30'],
   ['small/idle', 'state:open effort<3 idle>60'],
   ['conflicted', 'state:open mergeable:conflicting'],
+  ['examples', 'state:open kind:examples'],
+  ['contributing docs', 'state:open kind:contributing'],
   ['ci failing', 'state:open ci:failing'],
   ['ci not run', 'state:open ci:none'],
+  ['ci expired', 'state:open ci:expired'],
   ['big & old', 'state:open effort>3 age>180'],
   ['maintainer court > 14d', 'state:open court:maintainer cd>14'],
 ];
@@ -588,16 +628,22 @@ function toggleFilter(q, name) {
 let filterPopOpen = false; // the filter list stays open over the re-render each tick causes, until a click elsewhere
 document.addEventListener('click', e => { if (!e.target.closest('#viewpick')) filterPopOpen = false; });
 let queueLimit = 200;
+const DOC_TYPES = [['docs', 'provider docs'], ['examples', 'examples'], ['contributing', 'contributing docs']]; // the kinds that are documentation, and their names
 // group by: the table in sections. Each grouping names a PR's section (null for none);
 // sections keep the table's sort inside them and run in the grouping's order, else largest first.
 // Built on demand: the suggested categories are declared further down
 const groupings = () => ({
   suggested: { label: 'suggested category', of: p => { if (p.s !== 'open') return 'not open'; const c = CATEGORIES.find(c => c[2](p)); return c ? c[0] : 'everything else'; }, order: [...CATEGORIES.map(c => c[0]), 'everything else', 'not open'], desc: Object.fromEntries(CATEGORIES.map(c => [c[0], c[1]])) },
   kind: { label: 'kind of change', of: p => p.k.length ? (p.k.length === 1 ? p.k[0] + ' only' : p.k.slice().sort((a, b) => KINDS.indexOf(a) - KINDS.indexOf(b)).join(' + ')) : 'no files' },
+  // documentation: the PRs that are nothing but docs, by which of the three kinds. It drops the rest: a grouping with
+  // drop set leaves out the PRs it has no group for, from the table and everything counted or exported from it
+  docs: { label: 'documentation', of: p => { const types = DOC_TYPES.filter(([k]) => p.k.includes(k)); return types.length && only(p, ...DOC_TYPES.map(t => t[0]), 'changelog') ? types.map(t => t[1]).join(' + ') : null; }, drop: true,
+    order: DOC_TYPES.map(t => t[1]), desc: { 'provider docs': 'the website docs under website/ and nothing else', examples: 'example configurations under examples/ and nothing else', 'contributing docs': 'the contributor guide under contributing/ and nothing else' } },
   service: { label: 'service', of: p => p.sv.length === 0 ? 'no service' : p.sv.length === 1 ? p.sv[0] : 'several services' },
   court: { label: 'court', of: p => p.s !== 'open' ? p.s : p.ct + "'s court" },
   status: { label: 'status today', of: p => p.s !== 'open' ? p.s : p.status || 'open', order: [...STATE_NAMES, 'open', 'merged', 'closed'] },
-  ci: { label: 'ci', of: p => p.s !== 'open' ? 'not open' : 'ci ' + (p.ci || 'not run'), order: ['ci failing', 'ci not run', 'ci running', 'ci passing', 'not open'], desc: { 'ci not run': 'no checks on the head commit — often a first-time contributor\'s workflows waiting to be approved' } },
+  ci: { label: 'ci', of: p => p.s !== 'open' ? 'not open' : 'ci ' + (p.ci || 'not run'), order: ['ci failing', 'ci not run', 'ci running', 'ci passing', 'ci expired', 'not open'], desc: { 'ci not run': 'no checks on a recent head commit — often a first-time contributor\'s workflows waiting to be approved', 'ci expired': 'the head commit is over 400 days old and github has dropped its check results — a new commit runs them again' } },
+  cifail: { label: 'failing check', of: p => p.ci !== 'failing' ? 'not failing' : (p.cif || []).length === 0 ? 'failing, check unknown' : p.cif.length === 1 ? p.cif[0] + ' only' : p.cif.join(' + '), last: ['failing, check unknown', 'not failing'] },
   props: { label: 'properties changed', of: p => { const n = propCount(p); return n === 0 ? 'no property' : n === 1 ? 'single property' : n <= 4 ? '2–4 properties' : '5 or more properties'; }, order: ['single property', '2–4 properties', '5 or more properties', 'no property'] },
   group: { label: 'author group', of: p => p.g, order: [...GROUP_NAMES, 'community'] },
   effort: { label: 'effort', of: p => 'effort ' + p.ef, order: ['effort 1', 'effort 2', 'effort 3', 'effort 4', 'effort 5'] },
@@ -607,13 +653,14 @@ function grouped(rows) {
   const g = groupings()[S.gb]; if (!g) return null;
   const by = new Map();
   for (const p of rows) { const k = g.of(p) ?? 'other'; if (!by.has(k)) by.set(k, []); by.get(k).push(p); }
-  const names = [...by.keys()].sort((a, b) => { const o = g.order || []; const ia = o.indexOf(a), ib = o.indexOf(b); if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib); return by.get(b).length - by.get(a).length || a.localeCompare(b); });
+  const names = [...by.keys()].sort((a, b) => { const o = g.order || []; const ia = o.indexOf(a), ib = o.indexOf(b); if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib); const la = (g.last || []).includes(a), lb = (g.last || []).includes(b); if (la !== lb) return la ? 1 : -1; return by.get(b).length - by.get(a).length || a.localeCompare(b); });
   return names.map(name => ({ name, desc: (g.desc || {})[name] || '', prs: by.get(name) }));
 }
 // the prs table's rows: the filter, narrowed by show, in the table's sort — what the table draws and the export writes
 function queueRows() {
   const show = SHOWS.find(sh => sh[0] === S.sh);
-  const rows = show ? M.filter(show[2]) : M.slice();
+  let rows = show ? M.filter(show[2]) : M.slice();
+  const g = groupings()[S.gb]; if (g && g.drop) rows = rows.filter(p => g.of(p) != null); // a grouping that only covers some PRs shows only those
   rows.sort(colSorter(S.sort)); if (S.dir === 'asc') rows.reverse();
   return rows;
 }
@@ -712,6 +759,7 @@ $('#op-cancel').addEventListener('click', () => $('#openbox').close());
 const plainText = html => { const t = document.createElement('template'); t.innerHTML = html; return t.content.textContent.replace(/\s+/g, ' ').trim(); };
 const EXPORT_VALUE = {
   n: p => p.n, t: p => p.t, a: p => p.a, ef: p => p.ef, d: p => p.d ? 'yes' : '', props: p => propCount(p) || '',
+  cifail: p => (p.cif || []).join(', '), behind: p => p.bh ?? '', drift: p => p.cdr ?? '',
   k: p => p.k.join(', '), sv: p => p.sv.join(', '), l: p => p.l.join(', '), rw: p => p.rw.join(', '), rb: p => p.rb.join(', '), ab: p => p.ab.join(', '),
   cb: p => p.cb.map(c => c.l).join(', '), li: p => (p.li || []).join(', '), checks: p => p.checks.map(c => c.check).join(', '),
 };
@@ -734,7 +782,11 @@ function renderExportFields() {
 }
 const keepExportFields = () => { exportFields = [...$('#ex-cols').querySelectorAll('input')].map(i => [i.value, i.checked]); };
 function openExport() {
-  $('#ex-n').textContent = `${fmtNum(queueRows().length)} PRs`;
+  // with groups folded, what is on show is what is meant: the box starts ticked, and has nothing to do otherwise
+  const folded = unfoldedRows().length < queueRows().length;
+  $('#ex-shownonly').checked = folded; $('#ex-shownonly').disabled = !folded;
+  $('#ex-shownonly').parentElement.title = folded ? 'leave out the folded groups: export only the groups that are open' : 'no groups are folded, so everything is on show';
+  syncExportCount();
   renderExportFields();
   $('#ex-note').textContent = '';
   $('#exportbox').showModal();
@@ -763,9 +815,13 @@ function openExport() {
 // the dialog's choices: the ticked fields in the order they sit, the rows, their sections when grouped
 function exportPick() {
   const by = exportByKey(), cols = [...$('#ex-cols').querySelectorAll('input:checked')].map(i => by[i.value]).filter(Boolean);
-  const rows = queueRows();
+  const rows = exportRows();
   return { links: $('#ex-links').checked, cols, rows, sections: grouped(rows) };
 }
+// only shown: the folded groups are left out, as open leaves them out — every row of the groups that are open, drawn yet or not
+const exportRows = () => ($('#ex-shownonly').checked ? unfoldedRows() : queueRows());
+const syncExportCount = () => { $('#ex-n').textContent = `${fmtNum(exportRows().length)} PRs`; };
+$('#ex-shownonly').addEventListener('change', syncExportCount);
 // markdown: a list, a PR a line — the number (linked), the title, then the other picked columns as label: value.
 // A list and not a table because slack draws no tables; the html beside it is the same list for a rich paste,
 // which is what slack takes: links, bullets, and the titles' code spans, all live
@@ -820,7 +876,7 @@ const exportCopy = (text, what, html) => (!navigator.clipboard ? Promise.reject(
   .then(() => { $('#ex-note').textContent = `copied ${what}`; }, () => { $('#ex-note').textContent = 'the browser would not copy'; });
 $('#ex-copy').addEventListener('click', () => { const out = exportTable('\t'); if (!out.cols) { $('#ex-note').textContent = 'pick at least one column'; return; } exportCopy(out.text, `${fmtNum(out.n)} rows as a table`, out.html); });
 $('#ex-md').addEventListener('click', () => { const out = exportMarkdown(); exportCopy(out.text, `${fmtNum(out.n)} PRs as markdown`, out.html); });
-$('#ex-nums').addEventListener('click', () => { const rows = queueRows(); exportCopy(rows.map(p => p.n).join(' '), `${fmtNum(rows.length)} PR numbers`); });
+$('#ex-nums').addEventListener('click', () => { const rows = exportRows(); exportCopy(rows.map(p => p.n).join(' '), `${fmtNum(rows.length)} PR numbers`); });
 // the columns picker: a popover of every column, checked when shown; a click adds it at the end or removes it
 function bindColumnPicker(cols) {
   const el = $('#colpick'), pop = el.querySelector('.pop'), search = pop.querySelector('input');
@@ -869,15 +925,18 @@ function bindRowClicks(view) {
 // a PR's detail: its life as a bar of states, the numbers, and the timeline
 function detail(p) {
   const start = p.c, end = p.x || NOW, span = Math.max(end - start, 1);
-  const life = p.iv.map(iv => `<span style="width:${(((iv.e || NOW) - iv.s) / span * 100).toFixed(2)}%;background:${STATE_COLORS[iv.st]}" title="${STATE_NAMES[iv.st]} ${fmtDate(iv.s)} → ${iv.e ? fmtDate(iv.e) : 'now'} (${fmtDays(((iv.e || NOW) - iv.s) / DAY)})"></span>`).join('');
+  const life = p.iv.map(iv => `<span style="width:${(((iv.e || NOW) - iv.s) / span * 100).toFixed(2)}%;background:${STATE_COLORS[iv.st]}" title="${STATE_NAMES[iv.st]} ${fmtDate(iv.s)} → ${iv.e ? fmtDate(iv.e) : 'now'} (${fmtDays(((iv.e || NOW) - iv.s) / DAY)})"></span>`).join('')
+    // ci failing: red stripes over the bar from when it was first seen red to now, whatever state the PR was in under them
+    + (p.s === 'open' && p.ci === 'failing' && p.cis ? (() => { const left = Math.min(Math.max((p.cis - start) / span * 100, 0), 99); return `<span class="cifail" style="left:${left.toFixed(2)}%;width:${(100 - left).toFixed(2)}%" title="ci failing since ${fmtDate(p.cis)} (${fmtDays(failingFor(p))})"></span>`; })() : '');
   const evs = p.ev.slice().reverse();
   const evLine = e => { const m = MAINT.has((e.w || '').toLowerCase()) && e.w.toLowerCase() !== p.lo; return `<div class="${m ? 'maint' : ''}"><span class="t">${fmtDate(e.t)}</span><span class="w">${esc(e.w || '')}</span> ${esc(e.k)}${e.x ? ' <span class="dim">' + esc(e.x.length > 60 ? e.x.slice(0, 59) + '…' : e.x) + '</span>' : ''}</div>`; };
   return `<div class="detail">
     <div class="row"><b>life</b>${fmtDate(p.c)} → ${p.x ? fmtDate(p.x) : 'now'} · ${fmtDays((end - start) / DAY)} ${p.s} ${p.mb ? '· merged by ' + esc(p.mb) : ''} ${p.ms ? '· milestone ' + esc(p.ms) : ''}</div>
     <div class="life">${life}</div>
-    <div class="legend">${STATE_NAMES.map((s, i) => `<span title="${STATE_DESC[i]}"><i class="box" style="--c:${STATE_COLORS[i]}"></i>${s}</span>`).join('')}</div>
-    <div class="row"><b>review</b>${p.rv} reviews · ${p.rr} changes-requested rounds · ${p.ap} approvals · first maintainer response ${p.fr < 0 ? 'none' : fmtDays(p.fr) + ' (' + esc(p.fw) + ')'} · waiting-response ${fmtDays(p.wd)} over ${p.wc} cycle${p.wc === 1 ? '' : 's'} · decision ${p.rd || 'none'} · ${p.mg || ''}${p.ci ? ` · <span class="${{ passing: 'ok', failing: 'bad', running: 'mid' }[p.ci]}">ci ${p.ci}</span>` : p.s === 'open' ? ' · <span class="dim">ci not run</span>' : ''}</div>
-    <div class="row"><b>roll</b>reviewed by ${p.rb.length ? logins(p.rb, 'reviewedby', 6) : 'nobody'} · approved by ${p.ab.length ? logins(p.ab, 'approvedby', 6) : 'nobody'} · changes requested by ${p.cb.length ? p.cb.map(c => `<span class="clk" data-q="changesby:${esc(c.l)}">${esc(c.l)}</span><span class="dim">(×${c.n} ✎${c.c})</span>`).join(', ') : 'nobody'} · ${p.rc} review comment${p.rc === 1 ? '' : 's'}${p.ci ? ` · ci <span class="${{ passing: 'ok', failing: 'bad', running: 'mid' }[p.ci]}">${p.ci}</span>` : ''}</div>
+    <div class="legend">${STATE_NAMES.map((s, i) => `<span title="${STATE_DESC[i]}"><i class="box" style="--c:${STATE_COLORS[i]}"></i>${s}</span>`).join('')}<span title="ci has been failing since then: the stripes lie over whatever state the PR was in"><i class="box stripes"></i>ci failing</span></div>
+    <div class="row"><b>review</b>${p.rv} reviews · ${p.rr} changes-requested rounds · ${p.ap} approvals · first maintainer response ${p.fr < 0 ? 'none' : fmtDays(p.fr) + ' (' + esc(p.fw) + ')'} · waiting-response ${fmtDays(p.wd)} over ${p.wc} cycle${p.wc === 1 ? '' : 's'} · decision ${p.rd || 'none'} · ${p.mg || ''}</div>
+    <div class="row"><b>roll</b>reviewed by ${p.rb.length ? logins(p.rb, 'reviewedby', 6) : 'nobody'} · approved by ${p.ab.length ? logins(p.ab, 'approvedby', 6) : 'nobody'} · changes requested by ${p.cb.length ? p.cb.map(c => `<span class="clk" data-q="changesby:${esc(c.l)}">${esc(c.l)}</span><span class="dim">(×${c.n} ✎${c.c})</span>`).join(', ') : 'nobody'} · ${p.rc} review comment${p.rc === 1 ? '' : 's'}</div>
+    ${p.s === 'open' ? `<div class="row"><b>ci</b>${ciLine(p)}</div>` : ''}
     <div class="row"><b>people</b>author <span class="clk" data-author="${esc(p.a)}">${esc(p.a)}</span> (${esc(p.as.toLowerCase().replace('_', ' '))}, ${esc(p.g)}) · reviewers ${p.rw.length ? p.rw.map(r => `<span class="clk" data-reviewer="${esc(r)}">${esc(r)}</span>`).join(', ') : 'none'} ${p.lastMaintBy ? '· last maintainer touch ' + esc(p.lastMaintBy) : ''}</div>
     <div class="row"><b>change</b>+${fmtNum(p.ad)}/−${fmtNum(p.de)} over ${p.f} files · effort ${p.ef}/5 · ${p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join('')} ${p.sv.map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('')}${propCount(p) ? ` · ${p.pp.length === 1 ? 'property' : 'properties'} ${p.pp.map(n => `<span class="clk" data-q="prop:${esc(n)}">${esc(n)}</span>`).join(', ')}` : ''}</div>
     <div class="row"><b>labels</b>${p.l.length ? p.l.map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('') : 'none'} ${p.li && p.li.length ? '· closes ' + p.li.map(n => `<a href="https://github.com/${D.repo}/issues/${n}" target="_blank" rel="noopener">#${n}</a>`).join(' ') : ''} · 👍 ${p.th} · 💬 ${p.cm}</div>
@@ -913,11 +972,13 @@ const fixShaped = p => p.l.includes('bug') || /\b(fix|fixes|fixed|correct|typo|c
 // each category: name, description, the test, the why-line, and a slug the data tab's query filters by (suggested:<slug>)
 const CATEGORIES = [
   ['approved, unmerged', `a maintainer's approval (the ${D.maintainerGroup} group's, not any collaborator's) is on it and nothing has been requested since — merge, or say what is missing`, p => p.approved, p => `approved by ${p.rw.filter(r => MAINT.has(r)).slice(0, 2).join(', ') || 'a maintainer'} · idle ${fmtDays(p.idle)}`, 'approved'],
-  ['docs and changelog only', 'no code changes: a read-through', p => only(p, 'docs', 'changelog'), p => `${p.k.join(' + ')} only · +${p.ad}/−${p.de}`, 'docs'],
+  ['provider docs only', 'the website docs and nothing else: a read-through', p => only(p, 'docs', 'changelog'), p => `${p.k.join(' + ')} only · +${p.ad}/−${p.de}`, 'docs'],
+  ['examples only', 'example configurations under examples/, no provider code', p => only(p, 'examples', 'changelog'), p => `${p.k.join(' + ')} only · +${p.ad}/−${p.de} · ${p.f} files`, 'examples'],
+  ['contributing docs only', 'the contributor guide under contributing/, nothing users see', p => only(p, 'contributing', 'changelog'), p => `${p.k.join(' + ')} only · +${p.ad}/−${p.de}`, 'contributing'],
   ['tests and ci only', 'test and workflow changes, nothing user-facing', p => only(p, 'tests', 'ci'), p => `${p.k.join(' + ')} only · +${p.ad}/−${p.de}`, 'tests'],
   ['dependency bumps', 'vendor and go.mod changes only', p => only(p, 'vendor'), p => `vendor only · +${p.ad}/−${p.de} · ${p.f} files`, 'deps'],
-  ['small fixes waiting on us', 'effort 1–2, fix-shaped, in the maintainers\' court', p => p.ef <= 2 && p.ct === 'maintainer' && fixShaped(p) && !p.approved && !only(p, 'docs', 'changelog', 'tests', 'ci', 'vendor'), p => `effort ${p.ef} · ${p.sv.join(', ') || 'no service'} · ${p.fr < 0 ? 'never answered' : 'last maintainer touch ' + fmtDays(daysSince(p.lm)) + ' ago'}`, 'fixes'],
-  ['small enhancements, one service', 'effort 1–2, a single service, in the maintainers\' court', p => p.ef <= 2 && p.ct === 'maintainer' && p.sv.length === 1 && !fixShaped(p) && !p.approved && !only(p, 'docs', 'changelog', 'tests', 'ci', 'vendor'), p => `effort ${p.ef} · ${p.sv[0]} · ${p.li && p.li.length ? 'closes #' + p.li.join(', #') : 'no linked issue'}`, 'enhancements'],
+  ['small fixes waiting on us', 'effort 1–2, fix-shaped, in the maintainers\' court', p => p.ef <= 2 && p.ct === 'maintainer' && fixShaped(p) && !p.approved && !only(p, 'docs', 'examples', 'contributing', 'changelog', 'tests', 'ci', 'vendor'), p => `effort ${p.ef} · ${p.sv.join(', ') || 'no service'} · ${p.fr < 0 ? 'never answered' : 'last maintainer touch ' + fmtDays(daysSince(p.lm)) + ' ago'}`, 'fixes'],
+  ['small enhancements, one service', 'effort 1–2, a single service, in the maintainers\' court', p => p.ef <= 2 && p.ct === 'maintainer' && p.sv.length === 1 && !fixShaped(p) && !p.approved && !only(p, 'docs', 'examples', 'contributing', 'changelog', 'tests', 'ci', 'vendor'), p => `effort ${p.ef} · ${p.sv[0]} · ${p.li && p.li.length ? 'closes #' + p.li.join(', #') : 'no linked issue'}`, 'enhancements'],
   ['author pushed after changes requested', 'a re-review of something already read once; small ones first', p => p.ct === 'maintainer' && p.rr > 0 && !p.approved && p.ef <= 3, p => `${p.rr} round${p.rr === 1 ? '' : 's'} · pushed ${fmtDays(daysSince(p.lu))} ago · effort ${p.ef}`, 'rereview'],
   ['small and never answered', 'effort 1–2 with no maintainer response yet — a first look is cheap and unblocks the author', p => p.ef <= 2 && p.fr < 0 && !p.d, p => `effort ${p.ef} · opened ${fmtDays(p.age)} ago · ${p.sv.join(', ') || 'no service'}`, 'unanswered'],
   ['likely closes', 'the checks\' candidates the AI scored 0.8 or higher — a close, not a review', p => p.checks.some(c => +c.score >= 0.8), p => p.checks.filter(c => +c.score >= 0.8).map(c => `close ${c.check} ${c.score}`).join(' · '), 'closes'],
@@ -1093,7 +1154,7 @@ function renderAreas(view) {
   view.innerHTML = `<div class="panels">
     <div class="panel wide"><h2>open PRs by service<span class="desc">top 30 by open count</span></h2><div class="chart" id="c-svc"></div><div class="legend"><span><i class="box" style="--c:var(--s1)"></i>mostly in the maintainers' court</span><span><i class="box" style="--c:var(--s4)"></i>mostly in the authors' court</span></div></div>
     <div class="panel wide table"><h2>services<span class="desc">from internal/services/&lt;name&gt; in the changed files · click to filter</span></h2>${table(SC, services, sk, 'asort', 80)}</div>
-    <div class="panel table"><h2>kinds of change<span class="desc">schema · code · tests · docs · vendor · ci · changelog</span></h2>${table(KC.filter(c => !['authors', 'reviewers'].includes(c[0])), kinds, sk, 'asort')}</div>
+    <div class="panel table"><h2>kinds of change<span class="desc">schema · code · tests · docs · examples · contributing · vendor · ci · changelog</span></h2>${table(KC.filter(c => !['authors', 'reviewers'].includes(c[0])), kinds, sk, 'asort')}</div>
     <div class="panel table"><h2>labels</h2>${table(LC.filter(c => !['authors', 'reviewers', 'ttm', 'fr'].includes(c[0])), labels, sk, 'asort', 40)}</div>
     </div>`;
   const top = services.slice().sort((a, b) => b.open - a.open).slice(0, 30);
@@ -1226,8 +1287,8 @@ function viewPromptSections(ask, full) {
 Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: data (a sortable table), trends (metric panels over time), suggested (easy reviews), areas (services), people (authors and reviewers), checks (close candidates).
 Answer with ONE json code block and nothing else, in exactly this form:
 {"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
-The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes (drafts only), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
-PRs keys: tab=prs, sort=priority|<column key>, dir=asc (reverses the sort), gb=suggested|kind|service|court|status|ci|props|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|tests|prop1|prop2-4 (only that kind of PR: approved, docs only, ci/test only, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
+The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
+PRs keys: tab=prs, sort=priority|<column key>, dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|props|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
 Trends keys: tab=trends, gran=day|week|month, cols=1|2|3, marks=major|minor|none (release markers).
 - m: the panels, separated by |. Each panel is an optional flag prefix then a comma separated list of metric keys: "s:" stacks the series as areas (only for same-unit series that add up, like the review statuses or opened-by-group), "b:" draws bars, "sb:" stacked bars, "t:" shows the panel as a table, "w:" makes the panel span the grid; flags combine ("sbw:"). A key prefixed with ! goes on the right-hand axis, with ~ it is plotted but hidden until the user clicks its legend entry (useful for a dominant series that would flatten the others); a panel may mix at most two units and the second unit is put on the right automatically.
 - Put closely related series together; 3 to 8 panels is a good view; order them from the most important down. The name should say what the view is about.
@@ -1278,16 +1339,55 @@ function boot() {
   // served by prawn explore --serve, the page can ask for a fresh build: refresh takes copy link's place (the url bar
   // has the link). Opened from disk there is nobody to ask, and copy link stays.
   if (location.protocol.startsWith('http')) {
-    const btn = $('#refresh'), api = () => new URL('refresh', location.href.split('#')[0]);
-    const watch = () => fetch(api()).then(r => r.json()).then(st => {
-      if (st.running) { btn.disabled = true; btn.textContent = 'refreshing…'; btn.title = `fetching and rebuilding${st.by && st.by !== '-' ? ' for ' + st.by : ''} — the page reloads when it is done`; setTimeout(watch, 3000); return; }
-      if (st.error) { btn.disabled = false; btn.textContent = 'refresh failed'; btn.title = st.error; return; }
-      location.reload();
-    }).catch(() => { btn.disabled = false; btn.textContent = 'refresh'; });
+    const btn = $('#refresh'), box = $('#refreshbox'), pre = $('#rf-log');
+    const api = from => { const u = new URL('refresh', location.href.split('#')[0]); if (from != null) u.searchParams.set('from', from); return u; };
+    // the button is refresh, then refreshing… while one runs (a click then opens the status window), then the page
+    // reloads — or, with the window open, waits to be told to. state: idle | busy | failed | done
+    let state = 'idle', logAt = 0, timer = null;
+    const took = st => { const a = Date.parse(st.started), b = st.finished ? Date.parse(st.finished) : Date.now(); const sec = Math.max(0, Math.round((b - a) / 1000)); return sec < 90 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`; };
+    const paint = st => {
+      btn.textContent = { idle: 'refresh', busy: 'refreshing…', failed: 'refresh failed', done: 'refreshed' }[state];
+      btn.title = { idle: 'fetch what moved on github since this page was built, rebuild it, and reload', busy: 'fetching and rebuilding — click to watch it', failed: 'the refresh failed — click for what it printed', done: 'the page is rebuilt — click to see what it printed' }[state];
+      if (!st) return;
+      const who = st.by && st.by !== '-' ? ` · started by ${st.by}` : '';
+      $('#rf-head').textContent = { idle: 'refresh', busy: `refreshing · ${took(st)}`, failed: 'the refresh failed', done: `refreshed in ${took(st)}` }[state];
+      $('#rf-desc').textContent = state === 'busy' ? `syncing with github and rebuilding the page${who} — the page reloads when it is done` : state === 'failed' ? (st.error || '') : state === 'done' ? `the page is rebuilt${who} — reload to see it` : '';
+      $('#rf-again').hidden = state !== 'failed'; $('#rf-reload').hidden = state !== 'done';
+    };
+    // what the refresh printed since the last look, appended; a new run starts the log over
+    const addLog = st => {
+      if (st.logEnd == null) return;
+      if (st.logEnd < logAt) { pre.textContent = ''; }
+      const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
+      if (st.log) pre.append(st.log);
+      logAt = st.logEnd;
+      if (atEnd) pre.scrollTop = pre.scrollHeight;
+    };
+    // one loop while a refresh runs: every second and with the log while the window is open, every few and bare otherwise
+    const watch = () => {
+      clearTimeout(timer);
+      fetch(api(box.open ? logAt : null)).then(r => r.json()).then(st => {
+        if (box.open) addLog(st);
+        if (st.running) { state = 'busy'; paint(st); timer = setTimeout(watch, box.open ? 1000 : 3000); return; }
+        if (st.error) { state = 'failed'; paint(st); return; }
+        if (state !== 'busy') { paint(st); return; } // nothing was running: a look at the last run's log, not a refresh ending
+        if (!box.open) { location.reload(); return; }
+        state = 'done'; paint(st);
+      }).catch(() => { state = 'idle'; paint(); });
+    };
+    const start = () => { state = 'busy'; paint(); fetch(api(), { method: 'POST', headers: { 'X-Prawn': '1' } }).then(() => { timer = setTimeout(watch, 500); }).catch(() => { state = 'idle'; paint(); }); };
+    const openBox = () => { pre.textContent = ''; logAt = 0; box.showModal(); watch(); };
     fetch(api()).then(r => r.ok ? r.json() : Promise.reject(new Error('no refresh here'))).then(st => {
       btn.hidden = false; $('#copy-link').hidden = true;
-      btn.addEventListener('click', () => { btn.disabled = true; btn.textContent = 'refreshing…'; fetch(api(), { method: 'POST', headers: { 'X-Prawn': '1' } }).then(() => setTimeout(watch, 1000)).catch(() => { btn.disabled = false; btn.textContent = 'refresh'; }); });
-      if (st.running) { btn.disabled = true; btn.textContent = 'refreshing…'; setTimeout(watch, 3000); } // someone else's refresh, already under way
+      btn.addEventListener('click', () => { if (state === 'idle') start(); else openBox(); });
+      // rebuilt while it was watched: closing the window is the reload. Done here and on escape, not on the dialog's
+      // close event, which a browser only delivers once the tab next paints
+      const shut = () => { if (box.open) box.close(); if (state === 'done') location.reload(); };
+      $('#rf-close').addEventListener('click', shut);
+      box.addEventListener('cancel', e => { e.preventDefault(); shut(); });
+      $('#rf-reload').addEventListener('click', () => location.reload());
+      $('#rf-again').addEventListener('click', () => { pre.textContent = ''; logAt = 0; start(); });
+      if (st.running) { state = 'busy'; paint(st); timer = setTimeout(watch, 3000); } // someone else's refresh, already under way
     }).catch(() => {}); // a plain file server, or an older prawn: no button
   }
   window.addEventListener('hashchange', () => { readHash(); update(true); });

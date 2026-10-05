@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -80,5 +81,52 @@ func TestStatusWriter(t *testing.T) {
 	}
 	if sw.status != http.StatusNotFound || sw.bytes != 4 {
 		t.Errorf("recorded %d/%d bytes, want 404/4", sw.status, sw.bytes)
+	}
+}
+
+// what a refresh prints is kept, colour codes stripped, and handed to the
+// page by offset; what is printed between refreshes is not
+func TestRefreshLog(t *testing.T) {
+	t.Parallel()
+	step, release := make(chan struct{}), make(chan struct{})
+	var rf *refresher
+	rf = &refresher{run: func() error {
+		_, _ = rf.log.Write([]byte("\x1b[0;36msyncing\x1b[0m 10/20\n"))
+		step <- struct{}{}
+		<-release
+		_, _ = rf.log.Write([]byte("wrote the page\n"))
+		return nil
+	}}
+	get := func(query string) refreshStatus {
+		rec := httptest.NewRecorder()
+		rf.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/refresh"+query, http.NoBody))
+		var st refreshStatus
+		_ = json.Unmarshal(rec.Body.Bytes(), &st)
+		return st
+	}
+
+	_, _ = rf.log.Write([]byte("a page load, before any refresh\n"))
+	rf.start("katbyte")
+	<-step
+	first := get("?from=0")
+	if first.Log != "syncing 10/20\n" || !first.Running {
+		t.Errorf("mid-run log = %q running %v, want the first line, colour stripped, and running", first.Log, first.Running)
+	}
+	if st := get(""); st.Log != "" {
+		t.Errorf("a plain poll carries the log: %q", st.Log)
+	}
+	close(release)
+	for range 200 {
+		if !get("").Running {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if rest := get("?from=" + strconv.Itoa(first.LogEnd)); rest.Log != "wrote the page\n" {
+		t.Errorf("the rest of the log = %q, want only what came after the first poll", rest.Log)
+	}
+	_, _ = rf.log.Write([]byte("printed after the refresh ended\n"))
+	if all := get("?from=0"); all.Log != "syncing 10/20\nwrote the page\n" {
+		t.Errorf("the finished run's log = %q, want it kept and nothing added after it ended", all.Log)
 	}
 }
