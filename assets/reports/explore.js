@@ -540,21 +540,6 @@ const ciName = p => ({ approval: 'needs approval' }[p.ci] || p.ci || 'not run');
 const ciAge = p => p.cir && p.ci !== 'approval' ? (NOW - p.cir) / DAY : null; // days since the head commit's checks last finished
 const failingFor = p => p.cis ? (NOW - p.cis) / DAY : null; // days since the PR was first seen failing — pushes that fail again do not restart it
 const commits = n => `${fmtNum(n)} commit${n === 1 ? '' : 's'}`;
-// the PR detail's ci row: the state and how long it has stood, what fails, when it last ran, and how far main has moved
-function ciLine(p) {
-  let head = `<span class="${CI_CLASS[p.ci] || 'dim'}">${ciName(p)}</span>`;
-  if (p.ci === 'failing' && p.cis) head += ` for ${fmtDays(failingFor(p))}`;
-  const parts = [head];
-  if (p.ci === 'failing') parts.push((p.cif || []).length ? p.cif.map(c => `<span class="badge clk" data-q="failing:${esc(c)}">${esc(c)}</span>`).join('') : 'which check is not known');
-  if (p.ci === 'approval') parts.push('github is holding its workflows until a maintainer approves and runs them — the checks that did run say nothing yet');
-  if (p.ci === 'expired') parts.push('github keeps check results 400 days — a new commit runs them again');
-  if (!p.ci) parts.push('no checks on the head commit');
-  const ran = p.ci !== 'approval'; // held workflows have a time and no run: nothing to date, nothing to drift from
-  if (ran && p.cir) parts.push(`last ran ${fmtDate(p.cir)}, ${fmtDays(ciAge(p))} ago`);
-  if (p.bh != null) parts.push(p.bh ? `${commits(p.bh)} behind its base` : 'up to date with its base');
-  if (ran && p.cdr != null) parts.push(p.cdr ? `the base has had ${commits(p.cdr)} since the run` : 'nothing has landed on the base since the run');
-  return parts.join(' · ');
-}
 col('ciage', 'ci age', "how long ago the head commit's checks last ran — a re-run counts", p => ciAge(p) == null ? '' : fmtDays(ciAge(p)), p => ciAge(p) ?? -1, { cls: 'num', hi: true });
 col('cifor', 'failing for', 'how long ci has been failing: since it was first seen red, through any pushes that failed again', p => p.cis ? `<span class="bad">${fmtDays(failingFor(p))}</span>` : '', p => failingFor(p) ?? -1, { cls: 'num', hi: true });
 col('cifail', 'failing checks', 'the checks failing on the head commit', p => (p.cif || []).map(c => `<span class="badge clk" data-q="failing:${esc(c)}">${esc(c)}</span>`).join(''), p => (p.cif || [])[0] || LAST);
@@ -570,21 +555,6 @@ col('tfail', 'tests failed', 'how many tests failed in those builds', p => p.tc 
 col('tpass', 'tests passed', 'how many tests passed in those builds', p => p.tc ? fmtNum(p.tc.p) : '', p => p.tc ? p.tc.p : -1, { cls: 'num', hi: true });
 col('testage', 'test age', 'how long ago the tests last ran', p => testAge(p) == null ? '' : fmtDays(testAge(p)), p => testAge(p) ?? -1, { cls: 'num', hi: true });
 col('tsince', 'since tests', 'commits pushed to the PR since its tests began: what they have not seen', p => testsSince(p) == null ? '' : fmtNum(testsSince(p)), p => testsSince(p) ?? -1, { cls: 'num', hi: true });
-// the PR detail's tests row: the outcome and the counts, how stale it is, each service's build (a link), and what failed
-function testsLine(p) {
-  const t = p.tc;
-  if (!t) return '<span class="dim">never run</span> · teamcity has no build for it (it keeps about seven months)';
-  const parts = [`<span class="${TC_CLASS[t.s]}">${t.s}</span>`, `${fmtNum(t.p)} passed`];
-  if (t.f) parts.push(`<span class="bad">${fmtNum(t.f)} failed</span>`);
-  if (t.i) parts.push(`${fmtNum(t.i)} ignored`);
-  if (t.at) parts.push(`last ran ${fmtDate(t.at)}, ${fmtDays(testAge(p))} ago`);
-  if (t.cs != null) parts.push(t.cs ? `<span class="mid">${commits(t.cs)} pushed since</span>` : 'nothing pushed since');
-  parts.push(t.b.map(b => `${esc(b.sv)} <a href="${esc(b.u)}" target="_blank" rel="noopener" class="${TC_CLASS[b.st]}" onclick="event.stopPropagation()">${b.st}${b.f ? ' ' + fmtNum(b.f) : ''}</a>`).join(', '));
-  if (t.n > t.b.length) parts.push(`${fmtNum(t.n)} runs in all`);
-  let out = parts.join(' · ');
-  if (t.ft && t.ft.length) out += `<br><span class="dim">failed</span> ${t.ft.slice(0, 12).map(n => `<span class="clk" data-q="failedtest:${esc(n)}">${esc(n)}</span>`).join(', ')}${t.ft.length > 12 ? ` <span class="dim">+${t.ft.length - 12}</span>` : ''}`;
-  return out;
-}
 col('mb', 'merged by', 'who merged it', p => p.mb ? `<span class="clk" data-q="mergedby:${esc(p.mb)}">${esc(p.mb)}</span>` : '', p => p.mb || LAST);
 col('c', 'created', 'when it opened', p => fmtDate(p.c), p => p.c, { cls: 'num', hi: true });
 col('u', 'updated', 'when github last saw it change: a push, a comment, a review, a label', p => fmtDate(p.u), p => p.u, { cls: 'num', hi: true });
@@ -963,35 +933,97 @@ function bindRowClicks(view) {
   // the view element outlives its content: bind once, or every re-render stacks another toggle on each row click
   if (view.rowsBound) return; view.rowsBound = true;
   view.addEventListener('click', e => {
+    const tl = e.target.closest('[data-timeline]'); if (tl) { e.stopPropagation(); openTimeline(tl.dataset.timeline); return; }
     const clk = e.target.closest('.clk');
     if (clk) { e.stopPropagation(); if (clk.dataset.author) set('a', clk.dataset.author); else if (clk.dataset.svc) set('svc', clk.dataset.svc); else if (clk.dataset.label) set('l', clk.dataset.label); else if (clk.dataset.reviewer) set('q', 'reviewer:' + clk.dataset.reviewer); else if (clk.dataset.group) set('g', clk.dataset.group); else if (clk.dataset.kind) set('k', clk.dataset.kind); else if (clk.dataset.q != null) { S.q = clk.dataset.q; set('tab', 'data'); } return; }
     const tr = e.target.closest('tr.pr'); if (!tr) return;
     set('open_n', S.open_n === tr.dataset.n ? '' : tr.dataset.n);
   });
 }
-// a PR's detail: its life as a bar of states, the numbers, and the timeline
+// a PR's detail: what the change is, its life as a bar of states, the facts two to a line, then a card each for ci, tests, review,
+// merge and court and a red box naming what fails. The timeline opens in a window of its own.
+const card = (label, value, cls, ...sub) => `<div class="card"><div class="k">${label}</div><div class="v ${cls || ''}">${value}</div>${sub.filter(Boolean).map(x => `<div class="d">${x}</div>`).join('')}</div>`;
+function ciCard(p) {
+  const ran = p.ci !== 'approval' && p.cir ? `ran ${fmtDays(ciAge(p))} ago` : '';
+  const drift = p.ci !== 'approval' && p.cdr ? `base has moved ${commits(p.cdr)} since` : '';
+  const why = { approval: 'waiting for a maintainer to approve the run', expired: 'github dropped the results (400 days)' }[p.ci] || (p.ci ? '' : 'no checks on the head commit');
+  const v = p.ci === 'failing' && p.cis ? `failing ${fmtDays(failingFor(p))}` : ciName(p);
+  return card('ci', v, CI_CLASS[p.ci] || 'dim', why || ran, drift);
+}
+function testsCard(p) {
+  const t = p.tc;
+  if (!t) return card('tests', 'never run', 'dim', 'no teamcity build');
+  const counts = t.f ? `<span class="bad">${fmtNum(t.f)} failed</span> · ${fmtNum(t.p)} passed` : `${fmtNum(t.p)} passed`;
+  const since = t.cs ? `<span class="mid">${commits(t.cs)} pushed since</span>` : t.cs === 0 ? 'nothing pushed since' : '';
+  return card('tests', t.s, TC_CLASS[t.s], counts, [t.at ? `ran ${fmtDays(testAge(p))} ago` : '', since].filter(Boolean).join(' · '));
+}
+function reviewCard(p) {
+  const rd = (p.rd || '').replace(/_/g, ' ').toLowerCase();
+  const [v, cls] = p.approved ? ['approved', 'ok'] : rd === 'changes requested' ? ['changes requested', 'mid'] : p.rv ? ['reviewed', ''] : ['not reviewed', 'dim'];
+  const first = p.fr < 0 ? '<span class="bad">no maintainer response</span>' : `first response ${fmtDays(p.fr)}`;
+  return card('review', v, cls, `${p.ap} approval${p.ap === 1 ? '' : 's'} · ${p.rr} round${p.rr === 1 ? '' : 's'} of changes`, first);
+}
+function mergeCard(p) {
+  const v = p.mg === 'conflicting' ? 'conflicting' : p.mg === 'mergeable' ? 'mergeable' : p.mg || 'unknown';
+  return card('merge', v, { conflicting: 'bad', mergeable: 'ok' }[v] || 'dim', p.bh == null ? '' : p.bh ? `${commits(p.bh)} behind its base` : 'up to date with its base');
+}
 function detail(p) {
   const start = p.c, end = p.x || NOW, span = Math.max(end - start, 1);
   const life = p.iv.map(iv => `<span style="width:${(((iv.e || NOW) - iv.s) / span * 100).toFixed(2)}%;background:${STATE_COLORS[iv.st]}" title="${STATE_NAMES[iv.st]} ${fmtDate(iv.s)} → ${iv.e ? fmtDate(iv.e) : 'now'} (${fmtDays(((iv.e || NOW) - iv.s) / DAY)})"></span>`).join('')
     // ci failing: red stripes over the bar from when it was first seen red to now, whatever state the PR was in under them
     + (p.s === 'open' && p.ci === 'failing' && p.cis ? (() => { const left = Math.min(Math.max((p.cis - start) / span * 100, 0), 99); return `<span class="cifail" style="left:${left.toFixed(2)}%;width:${(100 - left).toFixed(2)}%" title="ci failing since ${fmtDate(p.cis)} (${fmtDays(failingFor(p))})"></span>`; })() : '');
-  const evs = p.ev.slice().reverse();
-  const evLine = e => { const m = MAINT.has((e.w || '').toLowerCase()) && e.w.toLowerCase() !== p.lo; return `<div class="${m ? 'maint' : ''}"><span class="t">${fmtDate(e.t)}</span><span class="w">${esc(e.w || '')}</span> ${esc(e.k)}${e.x ? ' <span class="dim">' + esc(e.x.length > 60 ? e.x.slice(0, 59) + '…' : e.x) + '</span>' : ''}</div>`; };
+  const open = p.s === 'open', t = p.tc;
+
+  const cards = open
+    ? [ciCard(p), HAS_TESTS ? testsCard(p) : '', reviewCard(p), mergeCard(p), p.ct ? card('court', `${p.ct}'s`, `court-${p.ct}`, `for ${fmtDays(p.cd)}`, p.wc ? `waiting-response ${fmtDays(p.wd)} over ${p.wc} cycle${p.wc === 1 ? '' : 's'}` : '') : '']
+    : [card('state', p.s, `st-${p.s}`, p.x ? fmtDate(p.x) : '', p.mb ? `by ${esc(p.mb)}` : ''), reviewCard(p)];
+
+  // what is failing, named, where it is easy to see: the checks, the tests, the builds they failed in
+  const failing = [];
+  if (open && p.ci === 'failing') failing.push(`<div><b>failing checks</b>${(p.cif || []).length ? p.cif.map(c => `<span class="badge clk" data-q="failing:${esc(c)}">${esc(c)}</span>`).join('') : '<span class="dim">which check is not known</span>'}</div>`);
+  if (open && t && t.s === 'failing') {
+    const builds = t.b.filter(b => b.st === 'failing').map(b => `<a href="${esc(b.u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(b.sv)}${b.f ? ' · ' + fmtNum(b.f) : ''} ↗</a>`).join(', ');
+    failing.push(`<div><b>failing builds</b>${builds}</div>`);
+    if (t.ft && t.ft.length) failing.push(`<div><b>failed tests</b>${t.ft.slice(0, 12).map(n => `<span class="clk" data-q="failedtest:${esc(n)}">${esc(n)}</span>`).join(', ')}${t.ft.length > 12 ? ` <span class="dim">+${t.ft.length - 12}</span>` : ''}</div>`);
+  }
+
+  // the facts, label and value, two to a line
+  const fact = (k, v) => v ? `<div class="f"><b>${k}</b><span>${v}</span></div>` : '';
+  const facts = [
+    fact('author', `<span class="clk" data-author="${esc(p.a)}">${esc(p.a)}</span> <span class="dim">${esc(p.as.toLowerCase().replace('_', ' '))}, ${esc(p.g)}</span>`),
+    fact('services', p.sv.map(sv => `<span class="badge clk" data-svc="${esc(sv)}">${esc(sv)}</span>`).join('')),
+    fact('reviewers', p.rw.length ? p.rw.map(r => `<span class="clk" data-reviewer="${esc(r)}">${esc(r)}</span>`).join(', ') : '<span class="dim">none</span>'),
+    fact('file types', p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join('')),
+    fact('changes by', p.cb.length ? p.cb.map(c => `<span class="clk" data-q="changesby:${esc(c.l)}">${esc(c.l)}</span><span class="dim">(×${c.n} ✎${c.c})</span>`).join(', ') : ''),
+    fact('approved by', p.ab.length ? logins(p.ab, 'approvedby', 6) : ''),
+    fact('labels', p.l.map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('')),
+    fact('activity', `${p.rv} review${p.rv === 1 ? '' : 's'} · ${p.rc} review comment${p.rc === 1 ? '' : 's'} · 💬 ${p.cm} · 👍 ${p.th}${p.lastMaintBy ? ` · last maintainer ${esc(p.lastMaintBy)}` : ''}`),
+    open && t ? fact('test builds', t.b.map(b => `<a href="${esc(b.u)}" target="_blank" rel="noopener" class="${TC_CLASS[b.st]}" onclick="event.stopPropagation()">${esc(b.sv)}</a>`).join(', ') + (t.n > t.b.length ? ` <span class="dim">· ${fmtNum(t.n)} runs in all</span>` : '')) : '',
+    fact('closes', p.li && p.li.length ? p.li.map(n => `<a href="https://github.com/${D.repo}/issues/${n}" target="_blank" rel="noopener">#${n}</a>`).join(' ') : ''),
+    fact('milestone', p.ms ? esc(p.ms) : ''),
+    fact('checks', p.checks.map(c => `<span class="badge">${esc(c.check)}${c.score ? ' ' + c.score : ''}</span> ${c.ev.map(esc).join(' · ')}`).join('<br>')),
+  ].filter(Boolean).join('');
+
+  // what the change is, first and large: its kind, its size, and how much reviewing it takes
+  const headline = `<div class="headline">${p.kd ? `<span class="kd clk" data-q="kind:&quot;${esc(p.kd)}&quot;">${esc(p.kd)}</span>` : ''}${propCount(p) ? `<span class="pp">${p.pp.map(n => `<span class="clk" data-q="prop:${esc(n)}">${esc(n)}</span>`).join(', ')}</span>` : ''}<span class="sz"><span class="ok">+${fmtNum(p.ad)}</span> <span class="bad">−${fmtNum(p.de)}</span></span><span>${p.f} file${p.f === 1 ? '' : 's'}</span><span class="eff" title="review effort ${p.ef}/5">${'<b>●</b>'.repeat(p.ef)}${'○'.repeat(5 - p.ef)}</span><span class="dim">effort ${p.ef}/5</span></div>`;
   return `<div class="detail">
-    <div class="row"><b>life</b>${fmtDate(p.c)} → ${p.x ? fmtDate(p.x) : 'now'} · ${fmtDays((end - start) / DAY)} ${p.s} ${p.mb ? '· merged by ' + esc(p.mb) : ''} ${p.ms ? '· milestone ' + esc(p.ms) : ''}</div>
+    ${headline}
+    <div class="lifehead"><b>life</b>${fmtDate(p.c)} → ${p.x ? fmtDate(p.x) : 'now'} · ${fmtDays((end - start) / DAY)} ${p.s}<button class="plain" data-timeline="${p.n}" title="every event in its life, in a window">timeline · ${p.ev.length} events</button></div>
     <div class="life">${life}</div>
     <div class="legend">${STATE_NAMES.map((s, i) => `<span title="${STATE_DESC[i]}"><i class="box" style="--c:${STATE_COLORS[i]}"></i>${s}</span>`).join('')}<span title="ci has been failing since then: the stripes lie over whatever state the PR was in"><i class="box stripes"></i>ci failing</span></div>
-    <div class="row"><b>review</b>${p.rv} reviews · ${p.rr} changes-requested rounds · ${p.ap} approvals · first maintainer response ${p.fr < 0 ? 'none' : fmtDays(p.fr) + ' (' + esc(p.fw) + ')'} · waiting-response ${fmtDays(p.wd)} over ${p.wc} cycle${p.wc === 1 ? '' : 's'} · decision ${p.rd || 'none'} · ${p.mg || ''}</div>
-    <div class="row"><b>roll</b>reviewed by ${p.rb.length ? logins(p.rb, 'reviewedby', 6) : 'nobody'} · approved by ${p.ab.length ? logins(p.ab, 'approvedby', 6) : 'nobody'} · changes requested by ${p.cb.length ? p.cb.map(c => `<span class="clk" data-q="changesby:${esc(c.l)}">${esc(c.l)}</span><span class="dim">(×${c.n} ✎${c.c})</span>`).join(', ') : 'nobody'} · ${p.rc} review comment${p.rc === 1 ? '' : 's'}</div>
-    ${p.s === 'open' ? `<div class="row"><b>ci</b>${ciLine(p)}</div>` : ''}
-    ${p.s === 'open' && HAS_TESTS ? `<div class="row"><b>tests</b>${testsLine(p)}</div>` : ''}
-    <div class="row"><b>people</b>author <span class="clk" data-author="${esc(p.a)}">${esc(p.a)}</span> (${esc(p.as.toLowerCase().replace('_', ' '))}, ${esc(p.g)}) · reviewers ${p.rw.length ? p.rw.map(r => `<span class="clk" data-reviewer="${esc(r)}">${esc(r)}</span>`).join(', ') : 'none'} ${p.lastMaintBy ? '· last maintainer touch ' + esc(p.lastMaintBy) : ''}</div>
-    <div class="row"><b>change</b>${p.kd ? `<span class="clk" data-q="kind:&quot;${esc(p.kd)}&quot;">${esc(p.kd)}</span> · ` : ''}+${fmtNum(p.ad)}/−${fmtNum(p.de)} over ${p.f} files · effort ${p.ef}/5 · ${p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join('')} ${p.sv.map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('')}${propCount(p) ? ` · ${p.pp.length === 1 ? 'property' : 'properties'} ${p.pp.map(n => `<span class="clk" data-q="prop:${esc(n)}">${esc(n)}</span>`).join(', ')}` : ''}</div>
-    <div class="row"><b>labels</b>${p.l.length ? p.l.map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('') : 'none'} ${p.li && p.li.length ? '· closes ' + p.li.map(n => `<a href="https://github.com/${D.repo}/issues/${n}" target="_blank" rel="noopener">#${n}</a>`).join(' ') : ''} · 👍 ${p.th} · 💬 ${p.cm}</div>
-    ${p.checks.length ? `<div class="row"><b>checks</b>${p.checks.map(c => `<span class="badge">${esc(c.check)}${c.score ? ' ' + c.score : ''}</span> ${c.ev.map(esc).join(' · ')}`).join('<br>')}</div>` : ''}
-    <div class="row"><b>timeline</b>${p.ev.length} events</div>
-    <div class="events">${evs.slice(0, 40).map(evLine).join('')}${evs.length > 40 ? `<div>… ${evs.length - 40} earlier</div>` : ''}</div>
+    <div class="facts">${facts}</div>
+    <div class="cards">${cards.join('')}</div>
+    ${failing.length ? `<div class="failing">${failing.join('')}</div>` : ''}
   </div>`;
+}
+// the timeline window: a PR's events, newest first, maintainers' in their colour
+function openTimeline(n) {
+  const p = D.prs.find(x => String(x.n) === String(n)); if (!p) return;
+  const evLine = e => { const m = MAINT.has((e.w || '').toLowerCase()) && e.w.toLowerCase() !== p.lo; return `<div class="${m ? 'maint' : ''}"><span class="t">${fmtDate(e.t)}</span><span class="w">${esc(e.w || '')}</span> ${esc(e.k)}${e.x ? ' <span class="dim">' + esc(e.x.length > 90 ? e.x.slice(0, 89) + '…' : e.x) + '</span>' : ''}</div>`; };
+  $('#tl-head').innerHTML = `<a href="https://github.com/${D.repo}/pull/${p.n}" target="_blank" rel="noopener">#${p.n}</a> ${esc(p.t)}`;
+  $('#tl-desc').textContent = `${p.ev.length} events · ${fmtDate(p.c)} → ${p.x ? fmtDate(p.x) : 'now'}`;
+  $('#tl-events').innerHTML = p.ev.slice().reverse().map(evLine).join('') || '<div class="dim">no events fetched</div>';
+  $('#tlbox').showModal(); $('#tl-events').scrollTop = 0;
 }
 
 // ---- the trends tab ---- (the metric tree, presets, and combinable panels live in explore-trends.js)
@@ -1384,6 +1416,7 @@ function boot() {
   renderFilters();
   update();
   bindViews(); renderViews(); bindAI();
+  $('#tl-close').addEventListener('click', () => $('#tlbox').close());
   $('#copy-link').addEventListener('click', () => { navigator.clipboard?.writeText(location.href); $('#copy-link').textContent = 'copied'; setTimeout(() => { $('#copy-link').textContent = 'copy link'; }, 1200); });
   // served by prawn explore --serve, the page can ask for a fresh build: refresh takes copy link's place (the url bar
   // has the link). Opened from disk there is nobody to ask, and copy link stays.
