@@ -1,3 +1,5 @@
+# plain `make` is fmt + build: without this the first tool rule below would be the default
+.DEFAULT_GOAL := default
 # recipes use bash for pipefail support (ubuntu's default sh is dash)
 SHELL := /bin/bash
 
@@ -15,6 +17,9 @@ TOOLS_BIN=.tools/bin
 ACTIONLINT=$(TOOLS_BIN)/actionlint
 GOFUMPT=$(TOOLS_BIN)/gofumpt
 GOLANGCI_LINT=$(TOOLS_BIN)/golangci-lint
+# the tools module is not vendored (prawn's own dependencies are): GOFLAGS is cleared for it, so a
+# machine with GOFLAGS=-mod=vendor set still builds them rather than looking for .tools/vendor
+TOOLS_ENV=GOFLAGS=
 
 # non-Go tools also live in .tools/bin at pinned versions, but the pins are here (dependabot
 # cannot bump them): shellcheck, typos and zizmor are static binaries downloaded from their github releases,
@@ -38,12 +43,12 @@ GOLANGCI_LINT_MODULES=$(TOOLS_BIN)/golangci-with-modules
 # (via go list tool), so the makefile never repeats it - add a tool there and a variable above
 $(TOOLS_BIN)/%: .tools/go.mod .tools/go.sum
 	@echo "==> building $* (version pinned in .tools/go.mod)..."
-	@cd .tools && go build -o bin/$* $$(go list tool | grep "/$*$$")
+	@cd .tools && $(TOOLS_ENV) go build -o bin/$* $$($(TOOLS_ENV) go list tool | grep "/$*$$")
 
 # explicit rules take precedence over the pattern rule above for the non-Go tools
 $(GOLANGCI_LINT_MODULES): .tools/.custom-gcl.yml $(GOLANGCI_LINT)
 	@echo "==> building golangci-lint with plugins (versions pinned in .tools/.custom-gcl.yml)..."
-	@cd .tools && bin/golangci-lint custom
+	@cd .tools && $(TOOLS_ENV) bin/golangci-lint custom
 
 $(SHELLCHECK): makefile
 	@echo "==> downloading shellcheck $(SHELLCHECK_VERSION)..."
@@ -155,11 +160,11 @@ depscheck: ## Check that go.mod/go.sum and vendor/ are in sync
 	@git diff --compact-summary --exit-code -- vendor || \
 		(echo; echo "Unexpected difference in vendor/ directory. Run 'go mod vendor' command or revert any go.mod/go.sum/vendor changes and commit."; exit 1)
 	@echo "==> Checking .tools/go.mod with go mod tidy..."
-	@cd .tools && go mod tidy
+	@cd .tools && $(TOOLS_ENV) go mod tidy
 	@git diff --exit-code -- .tools/go.mod .tools/go.sum || \
 		(echo; echo "Unexpected difference in .tools/go.mod/go.sum. Run 'cd .tools && go mod tidy' and commit."; exit 1)
 	@echo "==> Checking .tools/.custom-gcl.yml golangci-lint version matches .tools/go.mod..."
-	@modv=$$(cd .tools && go list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2); \
+	@modv=$$(cd .tools && $(TOOLS_ENV) go list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2); \
 		gclv=$$(grep '^version:' .tools/.custom-gcl.yml | awk '{print $$2}'); \
 		[ "$$modv" = "$$gclv" ] || \
 		(echo; echo "golangci-lint version mismatch: .tools/go.mod has $$modv but .tools/.custom-gcl.yml has $$gclv - update .custom-gcl.yml to match."; exit 1)

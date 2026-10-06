@@ -131,7 +131,7 @@ in your home directory or the current one.
 
 | Variable | Flag | Description |
 |---|---|---|
-| `GITHUB_TOKEN` | `--token-gh` | GitHub token |
+| `GITHUB_TOKEN` | `--token-gh` | GitHub token; `explore` runs without one, serving the database as it is |
 | `PRAWN_REPO` | `--repo`, `-r` | Repository to triage (default `hashicorp/terraform-provider-azurerm`) |
 | `TC_SERVER` | `--tc-server` | TeamCity host, for each PR's acceptance test results (optional; all three or none) |
 | `TC_TOKEN` | `--tc-token` | TeamCity access token; read-only is enough |

@@ -45,7 +45,7 @@ that counts as maintainers (default: members) for the response and ball-in-court
 checkout (--src-dir / PRAWN_SRC_DIR) and is skipped with a note without it; --with-ai scores the candidates as the report does.`,
 		Aliases:       []string{"x", "ui"},
 		Args:          cobra.NoArgs,
-		PreRunE:       cli.ValidateParams([]string{cli.ParamTokenGH, cli.ParamRepo, "db"}),
+		PreRunE:       cli.ValidateParams([]string{cli.ParamRepo, "db"}), // no token: the page from the db as it is
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
@@ -64,6 +64,12 @@ checkout (--src-dir / PRAWN_SRC_DIR) and is skipped with a note without it; --wi
 }
 
 func run(f *cli.FlagData) error {
+	// without a token there is nothing to sync with: the page is built and served from the
+	// database as it stands (a copy brought from elsewhere), and refresh only rebuilds it
+	if f.GH.Token == "" && !f.NoAutoFetch {
+		cout.Printf("<yellow>no GITHUB_TOKEN:</> using the database as it is, without syncing\n")
+		f.NoAutoFetch = true
+	}
 	if f.Cmd.Explore.Serve == "" {
 		return build(f, syncIfStale)
 	}

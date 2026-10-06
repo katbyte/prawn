@@ -1,3 +1,8 @@
+## Unreleased
+
+- `explore` no longer needs `GITHUB_TOKEN`: without one it builds and serves the page from the database as it is, and refresh only rebuilds it — for serving a copied database
+- `make` builds prawn again (it had been building only one lint tool), and the dev tools build on a machine with `GOFLAGS=-mod=vendor` set
+
 ## v0.1.1 (2026-10-05)
 
 - release: v0.1.0's binaries never built, because the pure-go sqlite has no solaris or 32-bit openbsd port; those two are dropped, and this is the first release with binaries and a homebrew formula (v0.1.0 published only the docker image)
