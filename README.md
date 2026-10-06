@@ -1,4 +1,4 @@
-# 🦐 prawn
+# 🦐 prawn — PRs, Attention Where Needed
 
 [![GitHub release](https://img.shields.io/github/v/release/katbyte/prawn?color=blueviolet)](https://github.com/katbyte/prawn/releases/latest)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/katbyte/prawn?label=go&color=00ADD8)](https://github.com/katbyte/prawn/blob/main/go.mod)
@@ -8,7 +8,7 @@
 ![CodeQL](https://github.com/katbyte/prawn/actions/workflows/codeql-analysis.yml/badge.svg)
 [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/katbyte/prawn?label=openSSF)](https://scorecard.dev/viewer/?uri=github.com/katbyte/prawn)
 
-PRs, Attention Where Needed. A command-line utility for triaging a repository's open pull
+A command-line utility for triaging a repository's open pull
 requests: it finds the ones to close, labels the ones missing labels, and builds an explore page over the
 review flow. Built for `hashicorp/terraform-provider-azurerm`; the sibling of [koi](https://github.com/katbyte/koi)
 for issues.
