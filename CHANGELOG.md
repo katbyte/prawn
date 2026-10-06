@@ -1,3 +1,11 @@
+## v0.3.0 (2026-10-06)
+
+- a **data** tab: a month, a year or any dates at a glance, and the closed and merged PRs in columns you pick, ready to paste
+- a built-in **GC sheet** view with the monthly sheet's columns
+- the query box fills the rest of the filter bar
+- the effort filter is gone from the top bar
+- Copilot's reviews no longer count as a person's
+
 ## v0.2.0 (2026-10-06)
 
 - only admins (`PRAWN_ADMINS`) can refresh the page or replace its database

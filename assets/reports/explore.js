@@ -53,10 +53,10 @@ for (const c of (D.checks || [])) { const p = BY_N.get(c.n); if (p) p.checks.pus
 for (const p of D.prs) p.checkNames = p.checks.map(c => c.check).join(',');
 
 // ---- state: everything the url hash carries ----
-const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sg: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
+const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sg: '', mo: '', pd: '', yr: '', ddc: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
 const S = { ...DEFAULTS };
 // the state filter's default depends on the tab: open PRs everywhere, every state on trends — until it is set explicitly
-const stateFilter = () => S.st ?? (S.tab === 'trends' ? '' : 'open');
+const stateFilter = () => S.st ?? (S.tab === 'trends' || S.tab === 'data' ? '' : 'open');
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   for (const k in DEFAULTS) S[k] = h.has(k) ? h.get(k) : DEFAULTS[k];
@@ -124,6 +124,7 @@ function applyFilter() {
   const earliest = D.prs.reduce((m, p) => Math.min(m, p.c), NOW);
   let from = S.from ? Date.parse(S.from + 'T00:00:00Z') / 1000 : earliest;
   let to = S.to ? Date.parse(S.to + 'T23:59:59Z') / 1000 : NOW;
+  if (S.tab === 'data') ({ from, to } = dataRange()); // the data tab's period is the window: a month, a year, or from/to
   if (!Number.isFinite(from) || from < earliest) from = earliest;
   if (!Number.isFinite(to) || to > NOW) to = NOW;
   if (to < from) to = from + DAY;
@@ -163,8 +164,11 @@ function renderFilters() {
   const el = $('#filters');
   const opt = (v, label, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`;
   el.innerHTML = `
-    <label>from<input type="date" id="f-from" value="${esc(S.from)}"></label>
-    <label>to<input type="date" id="f-to" value="${esc(S.to)}"></label>
+    ${S.tab === 'data' ? `<label>period<select id="f-pd">${opt('', 'month', S.pd)}${opt('year', 'year', S.pd)}${opt('custom', 'custom', S.pd)}</select></label>` : ''}
+    ${S.tab === 'data' && S.pd === '' ? `<label>month<input type="month" id="f-mo" value="${dataMonth()}"></label>` : ''}
+    ${S.tab === 'data' && S.pd === 'year' ? `<label>year<select id="f-yr">${dataYears().map(y => opt(y, y, dataYear())).join('')}</select></label>` : ''}
+    ${S.tab !== 'data' || S.pd === 'custom' ? `<label>from<input type="date" id="f-from" value="${esc(S.from)}"></label>
+    <label>to<input type="date" id="f-to" value="${esc(S.to)}"></label>` : ''}
     <label>state<div class="row">${segMulti('f-st', ['open', 'merged', 'closed'], stateFilter(), STATE_MC)}<div class="seg multi apart" id="f-dr"><button style="--mc:var(--ink-2)"><i></i>draft</button></div></div></label>
     <label>group<select id="f-g">${opt('', 'any', S.g)}${GROUP_NAMES.map(g => opt(g, g, S.g)).join('')}${opt('community', 'community', S.g)}</select></label>
     <div class="fl">author${picker('f-a', 'a', countBy(p => [p.a]), 'any author')}</div>
@@ -172,12 +176,14 @@ function renderFilters() {
     <div class="fl">files${picker('f-k', 'k', KINDS.map(k => [k, D.prs.filter(p => p.k.length && p.k.every(x => x === k)).length]), 'any files', 'PRs made of only the picked kinds of file: schema (resource/data source .go), code (other .go), tests (_test.go), docs (website/, the provider docs), examples (examples/), contributing (contributing/, the contributor guide), vendor (vendor/, go.mod), ci (.github/, scripts/), changelog (.changelog/, CHANGELOG.md); the counts are PRs of exactly that one kind')}</div>
     <div class="fl">label${picker('f-l', 'l', countBy(p => p.l), 'any label')}</div>
     <label>court<select id="f-ct">${opt('', 'any', S.ct)}${opt('maintainer', 'maintainer', S.ct)}${opt('author', 'author', S.ct)}</select></label>
-    <label>effort<select id="f-ef">${opt('', 'any', S.ef)}${['1-1', '1-2', '1-3', '2-5', '3-5', '4-5', '5-5'].map(r => opt(r, r.replace('-', '–'), S.ef)).join('')}</select></label>
-    <label>query<input class="wide" id="f-q" value="${esc(S.q)}" placeholder="author:x label:bug age>90 -kind:docs …  (enter)"></label>
-    <span class="match"><span><b id="f-n"></b> of ${fmtNum(D.prs.length)} PRs</span> <button class="plain" id="f-clear">clear</button></span>
+    <label class="grow">query<input class="wide" id="f-q" value="${esc(S.q)}" placeholder="author:x label:bug age>90 -kind:docs …  (enter)"></label>
+    <span class="match"><span class="count"><b id="f-n"></b><span>of ${fmtNum(D.prs.length)} PRs</span></span> <button class="plain" id="f-clear">clear</button></span>
     `;
   const bind = (id, key, ev = 'change') => $(id).addEventListener(ev, e => set(key, e.target.value));
-  bind('#f-from', 'from'); bind('#f-to', 'to'); bind('#f-g', 'g'); bind('#f-ct', 'ct'); bind('#f-ef', 'ef'); bind('#f-q', 'q');
+  const bindIf = (id, key) => { if ($(id)) bind(id, key); };
+  bindIf('#f-from', 'from'); bindIf('#f-to', 'to'); bindIf('#f-mo', 'mo'); bindIf('#f-yr', 'yr'); bind('#f-g', 'g'); bind('#f-ct', 'ct'); bind('#f-q', 'q');
+  // a month, a year, or from/to: each has other inputs, so the bar is drawn again
+  if ($('#f-pd')) $('#f-pd').addEventListener('change', e => { S.pd = e.target.value; update(true); });
   bindPickers();
   $('#f-q').addEventListener('keydown', e => { if (e.key === 'Enter') set('q', e.target.value); });
   const togglePills = (id, key) => $(id).addEventListener('click', e => {
@@ -244,10 +250,10 @@ function bindPickers() {
 }
 
 // ---- tabs ----
-const TABS = [['prs', 'prs'], ['trends', 'trends'], ['suggested', 'suggested'], ['services', 'services'], ['people', 'people'], ['checks', 'checks']];
+const TABS = [['prs', 'prs'], ['trends', 'trends'], ['suggested', 'suggested'], ['services', 'services'], ['people', 'people'], ['checks', 'checks'], ['data', 'data']];
 function renderTabs() {
   const counts = { prs: queueRows().length, // the prs tab's show, and a grouping that drops PRs, narrow its table: so its count too
-    trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: M.reduce((n, p) => n + p.checks.length, 0) };
+    trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: M.reduce((n, p) => n + p.checks.length, 0), data: monthRows().length };
   // the tab is the header's dropdown, where the page's name was; the controls row keeps the tab's own controls
   $('#tabSel').innerHTML = TABS.map(([id, label]) => `<option value="${id}"${S.tab === id ? ' selected' : ''}>${label} · ${fmtNum(counts[id])}</option>`).join('');
   $('#controls').innerHTML = `<span id="tabctl" style="display:contents"></span>`;
@@ -483,7 +489,7 @@ const GRAN_STEP = { day: DAY, week: 7 * DAY, month: 30 * DAY };
 function bucketIndex(times, t) { let lo = 0, hi = times.length - 1; if (t < times[0]) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (times[m] <= t) lo = m; else hi = m - 1; } return lo; }
 const bucketLabel = gran => t => { const d = new Date(t * 1000); return gran === 'month' ? d.toLocaleString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : gran === 'week' ? 'week of ' + fmtDate(t) : fmtDate(t); };
 
-// ---- the data tab's columns: every field collected on a PR, each one renderable, sortable, and pickable ----
+// ---- the prs tab's columns: every field collected on a PR, each one renderable, sortable, and pickable ----
 // key → { l: header, d: what it is, f: render, v: sort value (text a→z, numbers low first unless hi), cls: cell class }
 const COL = {};
 const col = (k, l, d, f, v, o = {}) => { COL[k] = { k, l, d, f, v, cls: o.cls || '', hi: !!o.hi, s: o.s }; };
@@ -564,9 +570,12 @@ col('li', 'closes', 'the issues its closing keywords reference', p => p.li.map(n
 col('aiMax', 'ai', 'the highest AI close score', p => p.aiMax == null ? '' : `<span title="${esc(Object.entries(p.ai).map(([k, v]) => k + ' ' + v.toFixed(2)).join(', '))}">${p.aiMax.toFixed(2)}</span>`, p => p.aiMax, { cls: 'num', hi: true });
 col('checks', 'checks', 'the close checks that flagged it', p => p.checks.map(c => `<span class="badge">${esc(c.check)}${c.score ? ' ' + c.score : ''}</span>`).join(''), p => p.checks.length, { hi: true });
 const DEFAULT_COLS = ['n', 't', 'a', 's', 'ct', 'age', 'idle', 'u', 'ef', 'size', 'f', 'sv', 'l', 'rr', 'fr', 'aiMax'];
-// the columns shown, in order: the dc hash key, or the default; unknown keys (an older view) are dropped
-const visibleCols = () => { const ks = (S.dc ? S.dc.split(',') : DEFAULT_COLS).filter(k => COL[k]); return (ks.length ? ks : DEFAULT_COLS).map(k => COL[k]); };
-const setCols = keys => set('dc', keys.join(',') === DEFAULT_COLS.join(',') ? '' : keys.join(','));
+// the columns shown, in order: the dc hash key, or the default; unknown keys (an older view) are dropped. The data
+// tab keeps a list of its own (ddc), the prs tab's until it is changed there
+const colsKey = () => S.tab === 'data' ? 'ddc' : 'dc';
+const prsColKeys = () => S.dc ? S.dc.split(',') : DEFAULT_COLS;
+const visibleCols = () => { const ks = (S.tab === 'data' && S.ddc ? S.ddc.split(',') : prsColKeys()).filter(k => COL[k]); return (ks.length ? ks : DEFAULT_COLS).map(k => COL[k]); };
+const setCols = keys => { const base = S.tab === 'data' ? prsColKeys() : DEFAULT_COLS; set(colsKey(), keys.join(',') === base.join(',') ? '' : keys.join(',')); };
 // ties in any sort break this way: the maintainers' court first, then the cheapest, then the longest waiting
 const SORT_PRIORITY = (a, b) => (a.ct === 'maintainer' ? 0 : 1) - (b.ct === 'maintainer' ? 0 : 1) || a.ef - b.ef || (b.cd || 0) - (a.cd || 0);
 // a column's comparator: its own when it has one, else by its sort value with empties last, ties broken by priority
@@ -708,14 +717,12 @@ function renderQueue(view) {
   const sortOpts = cols.map(c => [c.k, c.l]);
   const on = filtersOn(S.q); // the ready-made filters the query holds
   if (!sortOpts.some(([k]) => k === S.sort) && COL[S.sort]) sortOpts.push([S.sort, COL[S.sort].l]); // sorted by a hidden column
-  const shown = new Set(cols.map(c => c.k));
   tabControls(`<span>sort <select id="q-sort">${sortOpts.map(([v, l]) => `<option value="${v}"${S.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="plain dirbtn" id="q-dir" title="reverse the order — ${S.dir === 'asc' ? 'reversed now' : 'the column\'s own order now: newest, largest, or a to z first'}">${S.dir === 'asc' ? '▴' : '▾'}</button></span>
     <span>group by <select id="q-group" title="the table in sections, to tackle alike PRs together"><option value="">none</option>${Object.entries(groupings()).sort(byLabel(([, g]) => g.label)).map(([k, g]) => `<option value="${k}"${S.gb === k ? ' selected' : ''}>${g.label}</option>`).join('')}</select></span>${sections ? `<button class="plain" id="q-fold" title="fold every group shut, or unfold them all">${sections.every(sec => shut.has(sec.name)) ? 'unfold all' : 'fold all'}</button>` : ''}
     <span>show <select id="q-show" title="one kind of PR at a time"><option value="">all</option>${SHOWS.slice().sort(byLabel(sh => sh[1])).map(([k, l]) => `<option value="${k}"${S.sh === k ? ' selected' : ''}>${l}</option>`).join('')}</select></span>
     <span class="picker" id="viewpick" title="ready-made queries; tick as many as apply — the query box shows the result"><button class="plain pick${on.length ? ' on' : ''}" type="button">filter <span class="dim">${on.length ? (on.length <= 2 ? on.map(f => f[0]).join(', ') : `${on[0][0]} +${on.length - 1}`) : S.q ? 'custom query' : 'none'}</span></button>
       <div class="pop"${filterPopOpen ? '' : ' hidden'}><div class="opt reset" data-v=""><span class="sw all"></span><span class="name">none</span></div>${VIEWS.slice().sort(byLabel(f => f[0])).map(([l, fq]) => `<div class="opt${on.some(f => f[0] === l) ? ' on' : ''}" data-v="${esc(l)}"><span class="sw"></span><span class="name">${esc(l)}</span><span class="desc">${esc(fq.replace(/^state:open /, ''))}</span></div>`).join('')}</div></span>
-    <span class="picker" id="colpick"><button class="plain pick on" type="button">columns <span class="dim">${cols.length}</span></button>
-      <div class="pop" hidden><input type="search" placeholder="filter…"><div class="opt reset"><span class="sw all"></span><span class="name">reset to the default columns</span></div><div class="rows">${Object.values(COL).map(c => `<div class="opt${shown.has(c.k) ? ' on' : ''}" data-v="${c.k}" data-name="${esc(c.l.toLowerCase())}" title="${esc(c.d)}"><span class="sw"></span><span class="name">${esc(c.l)}</span><span class="desc">${esc(c.d)}</span></div>`).join('')}</div></div></span>
+    ${colPicker(cols)}
     <button class="plain" id="q-open" title="open every PR in the table in a new tab — the ones in folded groups left out">open</button>
     <button class="plain" id="q-export" title="the table as a csv, or copied for a spreadsheet: pick the columns">export</button>`);
   $('#q-sort').addEventListener('change', e => { S.dir = ''; set('sort', e.target.value); });
@@ -895,13 +902,15 @@ $('#ex-copy').addEventListener('click', () => { const out = exportTable('\t'); i
 $('#ex-md').addEventListener('click', () => { const out = exportMarkdown(); exportCopy(out.text, `${fmtNum(out.n)} PRs as markdown`, out.html); });
 $('#ex-nums').addEventListener('click', () => { const rows = exportRows(); exportCopy(rows.map(p => p.n).join(' '), `${fmtNum(rows.length)} PR numbers`); });
 // the columns picker: a popover of every column, checked when shown; a click adds it at the end or removes it
+const colPicker = cols => { const shown = new Set(cols.map(c => c.k)); return `<span class="picker" id="colpick"><button class="plain pick on" type="button">columns <span class="dim">${cols.length}</span></button>
+      <div class="pop" hidden><input type="search" placeholder="filter…"><div class="opt reset"><span class="sw all"></span><span class="name">reset to the ${S.tab === 'data' ? "prs tab's" : 'default'} columns</span></div><div class="rows">${Object.values(COL).map(c => `<div class="opt${shown.has(c.k) ? ' on' : ''}" data-v="${c.k}" data-name="${esc((c.l || c.d).toLowerCase())}" title="${esc(c.d)}"><span class="sw"></span><span class="name">${esc(c.l || '(blank)')}</span><span class="desc">${esc(c.d)}</span></div>`).join('')}</div></div></span>`; };
 function bindColumnPicker(cols) {
   const el = $('#colpick'), pop = el.querySelector('.pop'), search = pop.querySelector('input');
   el.querySelector('button.pick').addEventListener('click', () => { const open = pop.hidden; document.querySelectorAll('.picker .pop').forEach(p => { p.hidden = true; }); pop.hidden = !open; if (open) { search.value = ''; search.dispatchEvent(new Event('input')); search.focus(); } });
   search.addEventListener('input', () => { const f = search.value.toLowerCase(); pop.querySelectorAll('.rows .opt').forEach(l => { l.hidden = !!f && !l.dataset.name.includes(f) && !l.dataset.v.toLowerCase().includes(f); }); });
   pop.addEventListener('click', e => {
     const l = e.target.closest('.opt'); if (!l) return; e.preventDefault();
-    if (l.classList.contains('reset')) { set('dc', ''); return; }
+    if (l.classList.contains('reset')) { set(colsKey(), ''); return; }
     const keys = cols.map(c => c.k), v = l.dataset.v;
     if (keys.includes(v)) { if (keys.length > 1) setCols(keys.filter(k => k !== v)); } else setCols([...keys, v]);
   });
@@ -935,7 +944,7 @@ function bindRowClicks(view) {
   view.addEventListener('click', e => {
     const tl = e.target.closest('[data-timeline]'); if (tl) { e.stopPropagation(); openTimeline(tl.dataset.timeline); return; }
     const clk = e.target.closest('.clk');
-    if (clk) { e.stopPropagation(); if (clk.dataset.author) set('a', clk.dataset.author); else if (clk.dataset.svc) set('svc', clk.dataset.svc); else if (clk.dataset.label) set('l', clk.dataset.label); else if (clk.dataset.reviewer) set('q', 'reviewer:' + clk.dataset.reviewer); else if (clk.dataset.group) set('g', clk.dataset.group); else if (clk.dataset.kind) set('k', clk.dataset.kind); else if (clk.dataset.q != null) { S.q = clk.dataset.q; set('tab', 'data'); } return; }
+    if (clk) { e.stopPropagation(); if (clk.dataset.author) set('a', clk.dataset.author); else if (clk.dataset.svc) set('svc', clk.dataset.svc); else if (clk.dataset.label) set('l', clk.dataset.label); else if (clk.dataset.reviewer) set('q', 'reviewer:' + clk.dataset.reviewer); else if (clk.dataset.group) set('g', clk.dataset.group); else if (clk.dataset.kind) set('k', clk.dataset.kind); else if (clk.dataset.q != null) { S.q = clk.dataset.q; set('tab', 'prs'); } return; }
     const tr = e.target.closest('tr.pr'); if (!tr) return;
     set('open_n', S.open_n === tr.dataset.n ? '' : tr.dataset.n);
   });
@@ -1049,7 +1058,7 @@ function renderTrends(view) { renderMetrics(view); }
 // tally at the top counts it once.
 const only = (p, ...ks) => p.k.length && p.k.every(k => ks.includes(k));
 const fixShaped = p => p.l.includes('bug') || /\b(fix|fixes|fixed|correct|typo|crash|panic|nil)\b/i.test(p.t);
-// each category: name, description, the test, the why-line, and a slug the data tab's query filters by (suggested:<slug>)
+// each category: name, description, the test, the why-line, and a slug the prs tab's query filters by (suggested:<slug>)
 const CATEGORIES = [
   ['approved, unmerged', `a maintainer's approval (the ${D.maintainerGroup} group's, not any collaborator's) is on it and nothing has been requested since — merge, or say what is missing`, p => p.approved, p => `approved by ${p.rw.filter(r => MAINT.has(r)).slice(0, 2).join(', ') || 'a maintainer'} · idle ${fmtDays(p.idle)}`, 'approved'],
   ['provider docs only', 'the website docs and nothing else: a read-through', p => only(p, 'docs', 'changelog'), p => `${p.k.join(' + ')} only · +${p.ad}/−${p.de}`, 'docs'],
@@ -1098,7 +1107,7 @@ function renderSuggested(view) {
       </tbody></table></div>`).join('')}
       ${!cats.length ? `<div class="panel wide"><div class="empty">${bySvc ? 'no small PRs in the maintainers\' court among the matching open PRs' : 'no easy wins among the matching open PRs'} — widen the filter</div></div>` : ''}
     </div>`;
-  view.querySelectorAll('a.clk[data-q]').forEach(a => a.addEventListener('click', e => { e.stopPropagation(); if (a.dataset.q) S.q = a.dataset.q; set('tab', 'data'); }));
+  view.querySelectorAll('a.clk[data-q]').forEach(a => a.addEventListener('click', e => { e.stopPropagation(); if (a.dataset.q) S.q = a.dataset.q; set('tab', 'prs'); }));
   bindRowClicks(view);
 }
 
@@ -1242,6 +1251,87 @@ function renderAreas(view) {
   bindTableSorts(view); bindRowClicks(view);
 }
 
+// ---- the data tab: one month's closed and merged PRs, in the columns of the monthly sheet ----
+// dates as the viewer's own clock has them, as a spreadsheet does: a PR opened late on the 29th here is the 29th, not utc's 30th
+const localDate = u => { if (!u) return ''; const d = new Date(u * 1000), z = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; };
+// the month picked (mo=yyyy-mm), last month by default
+const dataMonth = () => S.mo || (() => { const d = new Date(NOW * 1000); d.setDate(1); d.setMonth(d.getMonth() - 1); return localDate(d.getTime() / 1000).slice(0, 7); })();
+// the year picked (yr=yyyy), this one by default, and the years there is data for
+const dataYear = () => S.yr || String(new Date(NOW * 1000).getFullYear());
+const dataYears = () => { const first = new Date(D.prs.reduce((m, p) => Math.min(m, p.c), NOW) * 1000).getFullYear(), last = new Date(NOW * 1000).getFullYear(); return Array.from({ length: last - first + 1 }, (_, i) => String(last - i)); };
+// the data tab's period: a month (the default), a year, or the from/to dates — midnight to midnight on the viewer's
+// clock, as [from, to) in seconds, with its name and a slug for file names
+function dataRange() {
+  const at = (y, m, d = 1) => new Date(y, m, d).getTime() / 1000;
+  if (S.pd === 'year') { const y = Number(dataYear()); return { from: at(y, 0), to: at(y + 1, 0), label: String(y), slug: String(y) }; }
+  if (S.pd === 'custom') {
+    const d = v => v.split('-').map(Number), earliest = D.prs.reduce((m, p) => Math.min(m, p.c), NOW);
+    const from = S.from ? at(d(S.from)[0], d(S.from)[1] - 1, d(S.from)[2]) : earliest, to = S.to ? at(d(S.to)[0], d(S.to)[1] - 1, d(S.to)[2] + 1) : NOW;
+    return { from, to, label: `${S.from || localDate(earliest)} to ${S.to || 'now'}`, slug: `${S.from || localDate(earliest)}_${S.to || localDate(NOW)}` };
+  }
+  const [y, m] = dataMonth().split('-').map(Number);
+  return { from: at(y, m - 1), to: at(y, m), label: new Date(y, m - 1, 1).toLocaleString('en', { month: 'long', year: 'numeric' }), slug: dataMonth() };
+}
+// the matching PRs closed or merged in the period, oldest number first
+const monthRows = () => { const { from, to } = dataRange(); return M.filter(p => p.x && p.x >= from && p.x < to).sort((a, b) => a.n - b.n); };
+// one name per review, in order, as the sheet lists them: the timeline's reviews, the author's own and bots' left out (the build's own test)
+const isBot = w => { const l = (w || '').toLowerCase(); return !l || l.endsWith('[bot]') || l.endsWith('-bot') || l.startsWith('copilot') || ['hashibot', 'github-actions', 'dependabot'].includes(l); };
+const reviewsBy = p => p.ev.filter(e => e.k === 'review' && e.w !== p.a && !isBot(e.w)).map(e => e.w);
+// the same, shortened for the table: each reviewer once, with how many reviews (the copy and csv keep the full list)
+const reviewsShort = p => { const n = new Map(); for (const w of reviewsBy(p)) n.set(w, (n.get(w) || 0) + 1); return [...n].map(([w, c]) => c > 1 ? `${w} ×${c}` : w).join(', '); };
+// the GC sheet's columns, as ordinary columns any table can show: its own headers, local dates, the state in capitals,
+// a reviewer per review. The blank one keeps a paste lined up with the sheet's empty column L
+const GC_COLS = [
+  ['gn', 'PR #', p => String(p.n), { cls: 'num' }], ['glink', 'Link', p => prURL(p.n), { html: p => `<a href="${prURL(p.n)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${prURL(p.n)}</a>` }],
+  ['gopened', 'Date Opened', p => localDate(p.c)], ['gclosed', 'Date Closed/Merged', p => localDate(p.x)], ['gstate', 'State', p => p.s.toUpperCase()],
+  ['guser', 'User', p => p.a], ['gmergedby', 'Merged By', p => p.mb || ''], ['gtitle', 'Title', p => p.t],
+  ['greviews', 'Reviews', p => String(p.rv), { cls: 'num' }], ['greviewcomments', 'Review Comments', p => String(p.rc), { cls: 'num' }],
+  ['gcomments', 'Discussion Comments', p => String(p.cm), { cls: 'num' }], ['gblank', '', () => ''],
+  ['greviewers', 'Reviewers (by review)', p => reviewsBy(p).join(', '), { html: p => esc(reviewsShort(p)) }], ['glabels', 'Labels', p => p.l.join(', ')],
+];
+for (const [k, l, text, o = {}] of GC_COLS) {
+  col(k, l, `GC sheet: ${l || 'an empty column'}`, o.html || (p => esc(text(p))), text, { cls: o.cls });
+  EXPORT_VALUE[k] = text;
+}
+const GC_KEYS = GC_COLS.map(c => c[0]);
+function renderData(view) {
+  const range = dataRange(), rows = monthRows(), cols = visibleCols();
+  tabControls(`${colPicker(cols)}<button class="plain" id="d-copy" title="tab-separated, the header row first: pastes into a google sheet as cells">copy for sheet</button><button class="plain" id="d-csv">csv</button><span class="note" id="d-note"></span>`);
+  // the period at a glance, every number over the PRs the filter matches: what came in, what went out and how,
+  // the reviewing done, and whether the queue grew. The period runs midnight to midnight on the viewer's clock
+  const { from, to } = range;
+  const inMonth = t => t >= from && t < to, end = Math.min(to, NOW);
+  const opened = M.filter(p => inMonth(p.c)), stillOpen = opened.filter(p => p.s === 'open').length;
+  const mergedPRs = rows.filter(p => p.s === 'merged'), closedPRs = rows.length - mergedPRs.length;
+  const reviews = M.flatMap(p => p.ev.filter(e => e.k === 'review' && inMonth(e.t) && e.w !== p.a && !isBot(e.w)).map(e => ({ n: p.n, w: e.w })));
+  const reviewedPRs = new Set(reviews.map(r => r.n)).size, maintReviews = reviews.filter(r => MAINT.has(r.w.toLowerCase())).length;
+  const openAt = t => M.filter(p => p.c < t && (!p.x || p.x >= t)).length, startOpen = openAt(from), endOpen = openAt(end), moved = endOpen - startOpen;
+  const tile = (v, k, d, cls = '') => `<div class="tile"><div class="v ${cls}">${v}</div><div class="k">${k}</div><div class="d">${d}</div></div>`;
+  view.innerHTML = `<div class="tiles">
+    ${tile(fmtNum(opened.length), `opened in ${range.label}`, `${fmtNum(stillOpen)} still open`)}
+    ${tile(fmtNum(mergedPRs.length), 'merged', `median ${fmtDays(median(mergedPRs.map(p => (p.m - p.c) / DAY)))} from opened`, 'ok')}
+    ${tile(fmtNum(closedPRs), 'closed without merging', `of ${fmtNum(rows.length)} closed or merged, the table below`)}
+    ${tile(fmtNum(reviews.length), 'reviews', `on ${fmtNum(reviewedPRs)} PRs · ${fmtNum(maintReviews)} by maintainers`)}
+    ${tile(`${moved > 0 ? '+' : ''}${fmtNum(moved)}`, 'open backlog', `${fmtNum(startOpen)} at the start → ${fmtNum(endOpen)} ${to > NOW ? 'now' : 'at the end'}`, moved > 0 ? 'bad' : moved < 0 ? 'ok' : '')}
+    </div>
+    <div class="panel wide table"><table><thead><tr>${cols.map(c => `<th class="${c.cls}" data-sort="${c.k}" draggable="true" title="${esc(c.d)}">${esc(c.l)}<span class="rm" title="remove the column">×</span></th>`).join('')}</tr></thead><tbody>
+    ${rows.map(p => `<tr class="pr" data-n="${p.n}">${cols.map(c => `<td class="${c.cls}">${c.f(p)}</td>`).join('')}</tr>${S.open_n === String(p.n) ? `<tr class="detail"><td colspan="${cols.length}">${detail(p)}</td></tr>` : ''}`).join('') || `<tr><td colspan="${cols.length}" class="empty">nothing closed or merged in ${range.label} among the matching PRs</td></tr>`}
+    </tbody></table></div>`;
+  bindRowClicks(view);
+  bindColumnPicker(cols);
+  view.querySelectorAll('th .rm').forEach(x => x.addEventListener('click', e => { e.stopPropagation(); setCols(cols.map(c => c.k).filter(k => k !== x.parentElement.dataset.sort)); }));
+  bindColumnDrag(view, cols);
+  const table = sep => [cols.map(c => c.l), ...rows.map(p => cols.map(c => exportCell(c, p)))]
+    .map(r => r.map(c => sep === ',' ? (/[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c) : c.replace(/[\t\n]+/g, ' ')).join(sep)).join('\n') + '\n';
+  $('#d-copy').addEventListener('click', () => (navigator.clipboard ? navigator.clipboard.writeText(table('\t')) : Promise.reject(new Error('no clipboard')))
+    .then(() => { $('#d-note').textContent = `copied ${fmtNum(rows.length)} rows`; }, () => { $('#d-note').textContent = 'the browser would not copy'; }));
+  $('#d-csv').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + table(',')], { type: 'text/csv;charset=utf-8' }));
+    a.download = `prs-${range.slug}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  });
+}
+
 // ---- the checks tab ----
 function renderChecks(view) {
   tabControls('');
@@ -1257,20 +1347,21 @@ function renderChecks(view) {
 }
 
 // ---- update ----
+let filtersTab = null; // the tab the filter bar was drawn for
 function update(rerenderFilters) {
   writeHash();
   hideTip();
   // the view controls live in the trends control row, which is about to be rebuilt: park them first
   const vc = $('#viewctl'); if (vc) { $('#viewhold').appendChild(vc); vc.hidden = true; }
   applyFilter();
-  if (rerenderFilters) renderFilters();
+  if (rerenderFilters || S.tab !== filtersTab) { filtersTab = S.tab; renderFilters(); }
   else syncFilterButtons();
   $('#f-n').textContent = fmtNum(M.length);
   if (S.sort === 'priority') S.sort = DEFAULTS.sort; // the old default sort, in bookmarked links and saved views
-  S.tab = { queue: 'prs', data: 'prs', areas: 'services' }[S.tab] || S.tab; // the tabs' old names, in bookmarked links and saved views
+  S.tab = { queue: 'prs', areas: 'services' }[S.tab] || S.tab; // the tabs' old names, in bookmarked links and saved views
   renderTabs();
   const view = $('#view'); view.innerHTML = '';
-  ({ prs: renderQueue, trends: renderTrends, suggested: renderSuggested, people: renderPeople, services: renderAreas, checks: renderChecks }[S.tab] || renderQueue)(view);
+  ({ prs: renderQueue, trends: renderTrends, suggested: renderSuggested, people: renderPeople, services: renderAreas, checks: renderChecks, data: renderData }[S.tab] || renderQueue)(view);
   // a view is the whole state but the tab — the filter every tab shares, the prs tab's columns and sort, the trends tab's layouts — so its controls show on every tab
   if (vc) { $('#tabctl').appendChild(vc); vc.hidden = false; }
   if ($('#viewSel').innerHTML) renderViews();
@@ -1279,6 +1370,9 @@ function update(rerenderFilters) {
 // ---- saved views: the whole url state under a name, in this browser; save to file and upload move them (tfpp's layouts) ----
 const VIEW_KEY = 'prawn.views';
 function loadViews() { try { return JSON.parse(localStorage.getItem(VIEW_KEY) || '{}') || {}; } catch (e) { return {}; } }
+// views every page has: picked like a saved one, never deleted; saving under the same name keeps an edited copy instead
+const BUILTIN_VIEWS = { 'GC sheet': { prawn: 'view', name: 'GC sheet', hash: 'tab=data&ddc=' + GC_KEYS.join(',') } };
+const allViews = () => ({ ...BUILTIN_VIEWS, ...loadViews() });
 function storeViews(vs) { try { localStorage.setItem(VIEW_KEY, JSON.stringify(vs)); } catch (e) { /* private window, full storage: the view just does not persist */ } }
 let viewName = 'default';
 // the tab is navigation, not part of a view: strip it before comparing
@@ -1286,17 +1380,18 @@ const viewHash = h => { const p = new URLSearchParams(h); p.delete('tab'); retur
 function viewEdited() {
   writeHash();
   if (viewName === 'default') return viewHash(location.hash.slice(1)).length > 0;
-  const v = loadViews()[viewName]; return !v || viewHash(location.hash.slice(1)) !== viewHash(v.hash);
+  const v = allViews()[viewName]; return !v || viewHash(location.hash.slice(1)) !== viewHash(v.hash);
 }
 function renderViews(selected) {
   if (selected) viewName = selected;
-  const vs = loadViews(), sel = $('#viewSel'); if (!sel) return;
+  const vs = allViews(), sel = $('#viewSel'); if (!sel) return;
   if (!vs[viewName] && viewName !== 'default') viewName = 'default';
   const edited = viewEdited();
   const opt = n => `<option value="${esc(n)}">${esc(n)}${n === viewName && edited ? ' (edited)' : ''}</option>`;
-  sel.innerHTML = opt('default') + Object.keys(vs).sort().map(opt).join('');
+  const saved = Object.keys(vs).filter(n => !(n in BUILTIN_VIEWS) || n in loadViews()).sort(), builtin = Object.keys(BUILTIN_VIEWS).filter(n => !saved.includes(n));
+  sel.innerHTML = opt('default') + builtin.map(opt).join('') + saved.map(opt).join('');
   sel.value = viewName;
-  $('#viewDel').disabled = viewName === 'default';
+  $('#viewDel').disabled = viewName === 'default' || !(viewName in loadViews());
 }
 function currentView(name) { writeHash(); return { prawn: 'view', name, repo: D.repo, saved: new Date().toISOString(), hash: location.hash.slice(1) }; }
 function applyView(v) { if (!v || typeof v.hash !== 'string') return; history.replaceState(null, '', '#' + v.hash); readHash(); update(true); }
@@ -1338,9 +1433,9 @@ function bindViews() {
   $('#viewSel').onchange = () => {
     const n = $('#viewSel').value;
     if (n === 'default') { viewName = 'default'; history.replaceState(null, '', location.pathname); readHash(); update(true); return; }
-    const v = loadViews()[n]; if (v) { viewName = n; applyView(v); }
+    const v = allViews()[n]; if (v) { viewName = n; applyView(v); }
   };
-  $('#viewDel').onclick = () => { if (viewName === 'default') return; const vs = loadViews(); delete vs[viewName]; storeViews(vs); viewName = 'default'; renderViews(); };
+  $('#viewDel').onclick = () => { if (viewName === 'default' || !(viewName in loadViews())) return; const vs = loadViews(); delete vs[viewName]; storeViews(vs); viewName = 'default'; renderViews(); };
   $('#viewUp').addEventListener('change', async ev => {
     const f = ev.target.files[0]; if (!f) return;
     try { importView(await f.text(), f.name.replace(/^prawn-/, '').replace(/-\d{4}-\d{2}-\d{2}\.json$/, '').replace(/\.json$/, '')); }
@@ -1365,7 +1460,7 @@ function viewPromptSections(ask, full) {
   const head = `${ask || ASK_PLACEHOLDER}
 
 ##########
-Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: data (a sortable table), trends (metric panels over time), suggested (easy reviews), areas (services), people (authors and reviewers), checks (close candidates).
+Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: prs (a sortable table), trends (metric panels over time), suggested (easy reviews), services, people (authors and reviewers), checks (close candidates), data (one month's closed and merged PRs, for a spreadsheet).
 Answer with ONE json code block and nothing else, in exactly this form:
 {"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
 The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").

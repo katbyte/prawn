@@ -235,7 +235,8 @@ const (
 // isBot tells GitHub apps and the repo's bots from people.
 func isBot(login string) bool {
 	l := strings.ToLower(login)
-	return l == "" || strings.HasSuffix(l, "[bot]") || l == "hashibot" || l == "github-actions" || l == "dependabot" || strings.HasSuffix(l, "-bot")
+	return l == "" || strings.HasSuffix(l, "[bot]") || l == "hashibot" || l == "github-actions" || l == "dependabot" || strings.HasSuffix(l, "-bot") ||
+		strings.HasPrefix(l, "copilot") // copilot's reviewer leaves reviews like a person, under a plain login
 }
 
 // Build derives the data set.
