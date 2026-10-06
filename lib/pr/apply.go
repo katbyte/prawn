@@ -120,7 +120,7 @@ func (p *ApplyPass) ApplyAll(numbers []int) error {
 			skipped++
 		}
 		if !p.DryRun && p.Max > 0 && closed >= p.Max {
-			cout.Printf("<gray>--max reached: %d %s, skipping the rest</>\n", p.Max, p.doneWord())
+			cout.Printf("<gray>--max reached: </><yellow>%d</><gray> %s, skipping the rest</>\n", p.Max, p.doneWord())
 			break
 		}
 	}
@@ -154,11 +154,11 @@ func (p *ApplyPass) ApplyAI(total int, judge JudgeFunc) error {
 			switch {
 			case v == nil:
 				unanswered++
-				cout.Printf("\n  <gray>%d/%d</> <gray>skip</> <cyan>#%d</> <yellow>no verdict</> %s\n",
+				cout.Printf("\n  <yellow>%d</><gray>/</><yellow>%d</> <gray>skip</> <cyan>#%d</> <yellow>no verdict</> %s\n",
 					pos, total, t.Number, text.TruncateRunes(text.OneLine(p.Title(t.Number)), 70))
 			case !interactive && v.Confidence < p.Threshold:
 				below++
-				cout.Printf("\n  <gray>%d/%d</> <gray>skip</> <cyan>#%d</> <%s>%.2f</> %s <darkGray>%s</>\n",
+				cout.Printf("\n  <yellow>%d</><gray>/</><yellow>%d</> <gray>skip</> <cyan>#%d</> <%s>%.2f</> %s <darkGray>%s</>\n",
 					pos, total, t.Number, p.ScoreTag(v.Confidence), v.Confidence,
 					text.TruncateRunes(text.OneLine(p.Title(t.Number)), 80), p.URL(t.Number))
 				cout.Printf("        <lightWhite>%s</>\n", text.OneLine(v.Reason))
@@ -181,11 +181,11 @@ func (p *ApplyPass) ApplyAI(total int, judge JudgeFunc) error {
 						skipped++
 					}
 				case ApplyQuit:
-					cout.Printf("<gray>quitting — %d candidates left unreviewed</>\n", total-pos)
+					cout.Printf("<gray>quitting — </><yellow>%d</><gray> candidates left unreviewed</>\n", total-pos)
 					return true, nil
 				}
 				if !p.DryRun && p.Max > 0 && closed >= p.Max {
-					cout.Printf("<gray>--max reached: %d %s, skipping the rest</>\n", p.Max, p.doneWord())
+					cout.Printf("<gray>--max reached: </><yellow>%d</><gray> %s, skipping the rest</>\n", p.Max, p.doneWord())
 					return true, nil
 				}
 			}

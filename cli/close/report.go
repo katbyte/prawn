@@ -78,7 +78,7 @@ func (f *Flags) Report() error {
 	if err := cli.WriteReportHTML(htmlPath, &data); err != nil {
 		return err
 	}
-	cout.Printf("\nwrote <cyan>%s</> — <yellow>%d</> close candidates <gray>(resolved %d · duplicate %d · stale %d · deprecated %d)</>\n",
+	cout.Printf("\nwrote <cyan>%s</> — <yellow>%d</> close candidates <gray>(resolved </><yellow>%d</><gray> · duplicate </><yellow>%d</><gray> · stale </><yellow>%d</><gray> · deprecated </><yellow>%d</><gray>)</>\n",
 		htmlPath, data.Total, resolved.Total, duplicate.Total, stale.Total, deprecated.Total)
 	if !o.WithAI {
 		cout.Printf("<gray>rerun with</> <cyan>--with-ai</> <gray>to score every candidate, or</> <cyan>--limit 10</> <gray>to test cheaply</>\n")

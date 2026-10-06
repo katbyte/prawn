@@ -403,7 +403,7 @@ func (*Flags) printDuplicateCard(fdg *duplicateFinding, pos, total int, v *pr.Ve
 	if fdg.viaIssue > 0 {
 		via = fmt.Sprintf("<gray>(both close</> <cyan>#%d</><gray>)</>", fdg.viaIssue)
 	}
-	cout.Printf("      <gray>duplicates</> <cyan>#%d</> %s <gray>· survivor has 💬 %d · review state %s</>\n",
+	cout.Printf("      <gray>duplicates</> <cyan>#%d</> %s <gray>· survivor has 💬 </><yellow>%d</><gray> · review state %s</>\n",
 		fdg.target.Number, via, fdg.target.CommentCount, text.OrDefault(fdg.target.ReviewDecision, "none"))
 	cout.Printf("      <gray>“</>%s<gray>”</> <darkGray>%s</>\n",
 		text.TruncateRunes(text.OneLine(fdg.target.Title), 90), fdg.target.URL)

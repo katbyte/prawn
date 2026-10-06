@@ -90,7 +90,7 @@ func (f *Flags) Stale(link string) error {
 			cout.Printf("  <%s>%-18s</> <yellow>%d</>  <gray>%s</>\n", c.tag, c.class, n, c.desc)
 		}
 	}
-	cout.Printf("  <gray>skipped: %d where the silence is under the class's window · %s</>\n", col.recent, keepSummary(col.protected))
+	cout.Printf("  <gray>skipped: </><yellow>%d</><gray> where the silence is under the class's window · %s</>\n", col.recent, keepSummary(col.protected))
 	if len(findings) == 0 {
 		return nil
 	}

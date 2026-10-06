@@ -19,6 +19,8 @@ type CI struct {
 	Behind       int       // commits on the base branch the PR's branch lacks, -1 unmeasured
 	Ahead        int       // commits on the PR's branch the base lacks, -1 unmeasured
 	Drift        int       // commits the base has had since the checks last ran, -1 unmeasured
+	HeadOid      string    // the head commit BehindSince was measured from
+	BehindSince  time.Time // when the branch last caught up with its base; zero when it is up to date or unmeasured
 	FetchedAt    time.Time
 }
 
@@ -59,13 +61,13 @@ func (d *DB) SaveCI(cis []CI, failing map[int]bool) error {
 			}
 		}
 		if _, err := tx.Exec(`
-			INSERT INTO pr_ci (pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at, awaiting)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO pr_ci (pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at, awaiting, head_oid, behind_since)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(pr_number) DO UPDATE SET
 				ran_at = excluded.ran_at, failing = excluded.failing, failing_since = excluded.failing_since,
 				behind = excluded.behind, ahead = excluded.ahead, drift = excluded.drift, fetched_at = excluded.fetched_at,
-				awaiting = excluded.awaiting`,
-			c.PRNumber, toDBTime(c.RanAt), string(list), since, c.Behind, c.Ahead, c.Drift, toDBTime(now), c.Awaiting); err != nil {
+				awaiting = excluded.awaiting, head_oid = excluded.head_oid, behind_since = excluded.behind_since`,
+			c.PRNumber, toDBTime(c.RanAt), string(list), since, c.Behind, c.Ahead, c.Drift, toDBTime(now), c.Awaiting, c.HeadOid, toDBTime(c.BehindSince)); err != nil {
 			return fmt.Errorf("saving ci of #%d: %w", c.PRNumber, err)
 		}
 	}
@@ -77,7 +79,7 @@ func (d *DB) SaveCI(cis []CI, failing map[int]bool) error {
 
 // AllCI returns the stored CI detail by PR number.
 func (d *DB) AllCI() (map[int]CI, error) {
-	rows, err := d.Query("SELECT pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at, awaiting FROM pr_ci")
+	rows, err := d.Query("SELECT pr_number, ran_at, failing, failing_since, behind, ahead, drift, fetched_at, awaiting, head_oid, behind_since FROM pr_ci")
 	if err != nil {
 		return nil, fmt.Errorf("reading ci: %w", err)
 	}
@@ -86,14 +88,14 @@ func (d *DB) AllCI() (map[int]CI, error) {
 	out := map[int]CI{}
 	for rows.Next() {
 		var c CI
-		var ranAt, failing, since, fetchedAt string
-		if err := rows.Scan(&c.PRNumber, &ranAt, &failing, &since, &c.Behind, &c.Ahead, &c.Drift, &fetchedAt, &c.Awaiting); err != nil {
+		var ranAt, failing, since, fetchedAt, behindSince string
+		if err := rows.Scan(&c.PRNumber, &ranAt, &failing, &since, &c.Behind, &c.Ahead, &c.Drift, &fetchedAt, &c.Awaiting, &c.HeadOid, &behindSince); err != nil {
 			return nil, fmt.Errorf("scanning ci: %w", err)
 		}
 		if err := json.Unmarshal([]byte(failing), &c.Failing); err != nil {
 			clog.Log.Debugf("unparsable failing checks for #%d: %v", c.PRNumber, err)
 		}
-		c.RanAt, c.FailingSince, c.FetchedAt = fromDBTime(ranAt), fromDBTime(since), fromDBTime(fetchedAt)
+		c.RanAt, c.FailingSince, c.FetchedAt, c.BehindSince = fromDBTime(ranAt), fromDBTime(since), fromDBTime(fetchedAt), fromDBTime(behindSince)
 		out[c.PRNumber] = c
 	}
 	return out, rows.Err()

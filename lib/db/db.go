@@ -225,6 +225,11 @@ CREATE TABLE tc_builds (
   failed_tests TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_tc_builds_pr ON tc_builds(pr_number, build_type, id);
+`, `
+-- the PR's head commit when last measured, and when its branch last caught up with its base (the merge base's
+-- date): it changes only with the head, so it is asked again only then
+ALTER TABLE pr_ci ADD COLUMN head_oid TEXT NOT NULL DEFAULT '';
+ALTER TABLE pr_ci ADD COLUMN behind_since TEXT NOT NULL DEFAULT '';
 `}
 
 func (d *DB) migrate() error {

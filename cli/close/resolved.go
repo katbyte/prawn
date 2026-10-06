@@ -110,9 +110,9 @@ func (f *Flags) Resolved(link string) error {
 	cout.Printf("  <gray>%s</>\n", keepSummary(col.protected))
 	switch {
 	case col.history == nil:
-		cout.Printf("  <yellow>landed class skipped</> <gray>— set --src-dir or PRAWN_SRC_DIR to check each PR's additions against the provider source</>\n")
+		cout.Printf("  <fg=208>landed class skipped</> <gray>— set --src-dir or PRAWN_SRC_DIR to check each PR's additions against the provider source</>\n")
 	case col.noDiff > 0:
-		cout.Printf("  <gray>landed: %d PRs have no diff held (run prawn fetch, or github will not render it)</>\n", col.noDiff)
+		cout.Printf("  <gray>landed: </><yellow>%d</><gray> PRs have no diff held (run prawn fetch, or github will not render it)</>\n", col.noDiff)
 	}
 	if len(findings) == 0 {
 		return nil

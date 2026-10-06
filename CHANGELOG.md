@@ -1,3 +1,10 @@
+## Unreleased
+
+- how long each PR's branch has been behind main: a **behind for** column, `behindfor` query key, and a **mergeable, behind 30d+** filter
+- clearer colours in the terminal: numbers stand out, warnings are orange
+- **show** has api upgrade, new resource and new data source; the docs entries read documentation (provider), (examples), (contributing)
+- **show** lists how many PRs each entry has, and greys out the empty ones
+
 ## v0.3.1 (2026-10-06)
 
 - a failing close check no longer stops the page from rebuilding

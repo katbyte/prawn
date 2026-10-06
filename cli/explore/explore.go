@@ -69,7 +69,7 @@ func run(f *cli.FlagData) error {
 	// without a token there is nothing to sync with: the page is built and served from the
 	// database as it stands (a copy brought from elsewhere), and refresh only rebuilds it
 	if f.GH.Token == "" && !f.NoAutoFetch {
-		cout.Printf("<yellow>no GITHUB_TOKEN:</> using the database as it is, without syncing\n")
+		cout.Printf("<fg=208>no GITHUB_TOKEN:</> using the database as it is, without syncing\n")
 		f.NoAutoFetch = true
 	}
 	if f.Cmd.Explore.Serve == "" {
@@ -161,9 +161,9 @@ func build(f *cli.FlagData, sync int) error {
 			withEvents++
 		}
 	}
-	cout.Printf("  <gray>%d PRs in the period, %d with timelines</>\n", len(in.PRs), withEvents)
+	cout.Printf("  <yellow>%d</><gray> PRs in the period, </><yellow>%d</><gray> with timelines</>\n", len(in.PRs), withEvents)
 	if withEvents < len(in.PRs) {
-		cout.Printf("  <yellow>%d PRs have no timeline yet — run</> <cyan>prawn fetch --full --since %s</> <yellow>to fetch them</>\n",
+		cout.Printf("  <fg=208>%d PRs have no timeline yet — run</> <cyan>prawn fetch --full --since %s</> <fg=208>to fetch them</>\n",
 			len(in.PRs)-withEvents, since.Format("2006-01-02"))
 	}
 
@@ -200,14 +200,14 @@ func build(f *cli.FlagData, sync int) error {
 		cout.Printf("  <gray>no provider checkout at %s yet: the sync after this clones it</>\n", srcDir)
 		srcDir = ""
 	} else if err := f.EnsureSrcDir(); err != nil {
-		cout.Printf("  <yellow>provider checkout skipped: %v</>\n", err)
+		cout.Printf("  <fg=208>provider checkout skipped: %v</>\n", err)
 		srcDir = ""
 	}
 	if srcDir != "" {
 		if data.Releases, err = releases(srcDir, since); err != nil {
-			cout.Printf("  <yellow>release markers skipped: %v</>\n", err)
+			cout.Printf("  <fg=208>release markers skipped: %v</>\n", err)
 		} else {
-			cout.Printf("  <gray>%d release tags since %s for the markers</>\n", len(data.Releases), data.Since)
+			cout.Printf("  <yellow>%d</><gray> release tags since %s for the markers</>\n", len(data.Releases), data.Since)
 		}
 	}
 
@@ -224,11 +224,11 @@ func build(f *cli.FlagData, sync int) error {
 		// a check that fails costs the checks tab, not the page: the rest of it is built and served either way
 		sections, serr := close.NewFlags(f).ReportSections(d, o, now)
 		if serr != nil {
-			cout.Printf("  <yellow>the checks failed, so the checks tab is empty: %v</>\n", serr)
+			cout.Printf("  <fg=208>the checks failed, so the checks tab is empty: %v</>\n", serr)
 			data.ChecksNote = "the checks failed when this page was built: " + serr.Error()
 		} else {
 			data.Checks = checkItems(sections)
-			cout.Printf("  <gray>%d close candidates across %d checks</>\n", len(data.Checks), len(sections))
+			cout.Printf("  <yellow>%d</><gray> close candidates across </><yellow>%d</><gray> checks</>\n", len(data.Checks), len(sections))
 		}
 	}
 
@@ -259,7 +259,7 @@ func viewFrom(flag string, since, now time.Time) string {
 		if t, err := time.Parse("2006-01-02", flag); err == nil {
 			from = t
 		} else {
-			cout.Printf("  <yellow>--view-from %q is not yyyy-mm-dd — using the default</>\n", flag)
+			cout.Printf("  <fg=208>--view-from %q is not yyyy-mm-dd — using the default</>\n", flag)
 		}
 	}
 	if from.Before(since) {

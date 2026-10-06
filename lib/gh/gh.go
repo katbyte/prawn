@@ -128,6 +128,33 @@ func (r Repo) GetPullDiff(number int) (string, error) {
 	}
 }
 
+// MergeBase is when a pull request's branch last caught up with base: the
+// date of the newest base commit it has (their merge base). It moves only
+// when the branch does — a merge of base into it, a rebase — never when base
+// moves on, so it can be kept until the head commit changes.
+func (r Repo) MergeBase(base string, number int) (time.Time, error) {
+	status, body, err := r.do(http.MethodGet, fmt.Sprintf("/compare/%s...refs/pull/%d/head?per_page=1", base, number), nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if status != http.StatusOK {
+		return time.Time{}, fmt.Errorf("comparing PR #%d with %s returned %d: %.200s", number, base, status, string(body))
+	}
+	var cmp struct {
+		MergeBase struct {
+			Commit struct {
+				Committer struct {
+					Date time.Time `json:"date"`
+				} `json:"committer"`
+			} `json:"commit"`
+		} `json:"merge_base_commit"`
+	}
+	if err := json.Unmarshal(body, &cmp); err != nil {
+		return time.Time{}, fmt.Errorf("decoding the comparison of PR #%d with %s: %w", number, base, err)
+	}
+	return cmp.MergeBase.Commit.Committer.Date, nil
+}
+
 // CreateComment posts a comment on a pull request (the issues endpoint serves
 // PR conversation comments too).
 func (r Repo) CreateComment(number int, text string) error {

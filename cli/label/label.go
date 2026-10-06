@@ -87,7 +87,7 @@ func (f *Flags) Label(label, link string) error {
 			cout.Printf("  <%s>%-13s</> <yellow>%d</>  <gray>%s</>\n", c.tag, c.class, n, c.desc)
 		}
 	}
-	cout.Printf("  <gray>%d already labelled bug or enhancement</>\n", col.labelled)
+	cout.Printf("  <yellow>%d</><gray> already labelled bug or enhancement</>\n", col.labelled)
 	if len(findings) == 0 {
 		return nil
 	}
@@ -249,7 +249,7 @@ func (f *Flags) labelOne(d *db.DB, repo gh.Repo, label string, fdg *labelFinding
 	f.printLabelCard(label, fdg, pos, total, v)
 
 	if f.DryRun {
-		cout.Printf("      <yellow>dry-run: would add the %s label</>\n", label)
+		cout.Printf("      <fg=208>dry-run: would add the %s label</>\n", label)
 		return pr.ApplyPreviewed, nil
 	}
 
@@ -336,7 +336,7 @@ func (*Flags) labelJudgeItems(findings []labelFinding) []pr.JudgeItem {
 // the AI's score when judged.
 func (*Flags) printLabelCard(label string, fdg *labelFinding, pos, total int, v *pr.Verdict) {
 	p := fdg.pr
-	cout.Printf("\n  <gray>%d/%d</> <cyan>#%d</> %s<bold>%s</> <darkGray>%s</>\n",
+	cout.Printf("\n  <yellow>%d</><gray>/</><yellow>%d</> <cyan>#%d</> %s<bold>%s</> <darkGray>%s</>\n",
 		pos, total, p.Number, text.StateTag(p.State),
 		text.TruncateRunes(text.OneLine(p.Title), 90), p.URL)
 	switch fdg.class {

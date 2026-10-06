@@ -138,6 +138,7 @@ type PR struct {
 	CIFailing      []string `json:"cif,omitempty"`
 	CIFailingSince int64    `json:"cis,omitempty"`
 	Behind         *int     `json:"bh,omitempty"`
+	BehindSince    int64    `json:"bhs,omitempty"` // when the branch last caught up with its base (the merge base), while it is behind
 	Ahead          *int     `json:"ah,omitempty"`
 	CIDrift        *int     `json:"cdr,omitempty"`
 	Tests          *Tests   `json:"tc,omitempty"` // the acceptance tests teamcity ran for it, open PRs only
@@ -732,6 +733,9 @@ func withCI(row *PR, c *db.CI) {
 		return &n
 	}
 	row.Behind, row.Ahead, row.CIDrift = measured(c.Behind), measured(c.Ahead), measured(c.Drift)
+	if c.Behind > 0 && !c.BehindSince.IsZero() {
+		row.BehindSince = c.BehindSince.Unix()
+	}
 }
 
 // ciRetention is how long GitHub keeps a commit's check results. Past it

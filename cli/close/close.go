@@ -55,7 +55,7 @@ type closeReq struct {
 // the close itself, and the action record. The caller prints its card first.
 func (f *Flags) doClose(d *db.DB, repo gh.Repo, req closeReq, v *pr.Verdict, throttle func(), ask bool) (int, error) {
 	if f.DryRun {
-		cout.Printf("      <yellow>dry-run: would comment (%d chars, %s.md) then close</>\n",
+		cout.Printf("      <fg=208>dry-run: would comment (%d chars, %s.md) then close</>\n",
 			len(req.comment), req.template)
 		return pr.ApplyPreviewed, nil
 	}
@@ -219,7 +219,7 @@ func printCardHeader(p *db.PR, pos, total int) {
 	if p.IsDraft {
 		draft = " <gray>(draft)</>"
 	}
-	cout.Printf("\n  <gray>%d/%d</> <cyan>#%d</> %s<bold>%s</>%s <darkGray>%s</>\n",
+	cout.Printf("\n  <yellow>%d</><gray>/</><yellow>%d</> <cyan>#%d</> %s<bold>%s</>%s <darkGray>%s</>\n",
 		pos, total, p.Number, text.StateTag(p.State),
 		text.TruncateRunes(text.OneLine(p.Title), 90), draft, p.URL)
 }

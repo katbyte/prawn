@@ -76,7 +76,7 @@ const KEYS = {
   kind: p => p.kd || (p.s === 'open' ? 'other' : null), touches: p => p.k, k: p => p.k, only: p => p.k.length === 1 ? p.k[0] : 'mixed', label: p => p.l, l: p => p.l, court: p => p.ct, c: p => p.ct, state: p => p.s, st: p => p.s,
   effort: p => p.ef, e: p => p.ef, age: p => p.age, idle: p => p.idle, size: p => p.size, files: p => p.f, rounds: p => p.rr,
   tests: p => p.tc ? p.tc.s : 'none', testsfailed: p => p.tc ? p.tc.f : null, testage: p => testAge(p), testsince: p => testsSince(p), failedtest: p => p.tc && p.tc.ft ? p.tc.ft : [], tested: p => p.tc ? p.tc.b.map(b => b.sv) : [],
-  ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], behind: p => p.bh ?? null, ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
+  ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], behind: p => p.bh ?? null, behindfor: p => behindFor(p), ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
   props: p => (p.pp || []).length, prop: p => p.pp || [], // how many schema properties the diff touches, and which
   fr: p => p.fr < 0 ? null : p.fr, reviewer: p => p.rw, r: p => p.rw, n: p => p.n, title: p => p.tl, t: p => p.tl,
   draft: p => p.d ? 'yes' : 'no', approved: p => p.approved ? 'yes' : 'no', decision: p => p.rd || 'none', rd: p => p.rd || 'none', milestone: p => p.ms || '', ms: p => p.ms || '',
@@ -197,7 +197,7 @@ function renderFilters() {
   syncDraft();
   $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh', 'sort', 'dir']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR, the most recently updated first
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
-    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>behind</code> and <code>drift</code> commits against the base branch; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
+    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
 }
 
@@ -544,12 +544,14 @@ const CI_CLASS = { passing: 'ok', failing: 'bad', running: 'mid', approval: 'mid
 const ciName = p => ({ approval: 'needs approval' }[p.ci] || p.ci || 'not run');
 // the detail behind ci, as of the last fetch: when the checks ran, what fails and since when, and how far main has moved
 const ciAge = p => p.cir && p.ci !== 'approval' ? (NOW - p.cir) / DAY : null; // days since the head commit's checks last finished
-const failingFor = p => p.cis ? (NOW - p.cis) / DAY : null; // days since the PR was first seen failing — pushes that fail again do not restart it
+const failingFor = p => p.cis ? (NOW - p.cis) / DAY : null;
+const behindFor = p => p.bhs ? (NOW - p.bhs) / DAY : null; // days since the branch last caught up with its base // days since the PR was first seen failing — pushes that fail again do not restart it
 const commits = n => `${fmtNum(n)} commit${n === 1 ? '' : 's'}`;
 col('ciage', 'ci age', "how long ago the head commit's checks last ran — a re-run counts", p => ciAge(p) == null ? '' : fmtDays(ciAge(p)), p => ciAge(p) ?? -1, { cls: 'num', hi: true });
 col('cifor', 'failing for', 'how long ci has been failing: since it was first seen red, through any pushes that failed again', p => p.cis ? `<span class="bad">${fmtDays(failingFor(p))}</span>` : '', p => failingFor(p) ?? -1, { cls: 'num', hi: true });
 col('cifail', 'failing checks', 'the checks failing on the head commit', p => (p.cif || []).map(c => `<span class="badge clk" data-q="failing:${esc(c)}">${esc(c)}</span>`).join(''), p => (p.cif || [])[0] || LAST);
 col('behind', 'behind', "commits on the base branch the PR's branch does not have", p => p.bh == null ? '' : fmtNum(p.bh), p => p.bh ?? -1, { cls: 'num', hi: true });
+col('behindfor', 'behind for', 'how long since the branch last caught up with its base (its merge base) — old and mergeable is a branch to merge main into', p => behindFor(p) == null ? '' : fmtDays(behindFor(p)), p => behindFor(p) ?? -1, { cls: 'num', hi: true });
 col('drift', 'ci drift', 'commits the base branch has had since the checks last ran: how stale the result is', p => p.cdr == null ? '' : fmtNum(p.cdr), p => p.cdr ?? -1, { cls: 'num', hi: true });
 // the acceptance tests teamcity ran: p.tc is the latest build of each service the PR was tested for, summed up
 const HAS_TESTS = D.prs.some(p => p.tc); // teamcity is configured and has answered: without it the page says nothing of tests
@@ -593,10 +595,14 @@ const KIND_ORDER = D.kindOrder || [];
 const propCount = p => (p.pp || []).length;
 const SHOWS = [
   ['approved', 'approved', p => p.approved],
-  ['docs', 'provider docs only', p => only(p, 'docs', 'changelog')],
-  ['examples', 'examples only', p => only(p, 'examples', 'changelog')],
-  ['contributing', 'contributing docs only', p => only(p, 'contributing', 'changelog')],
+  ['docs', 'documentation (provider)', p => only(p, 'docs', 'changelog')],
+  ['examples', 'documentation (examples)', p => only(p, 'examples', 'changelog')],
+  ['contributing', 'documentation (contributing)', p => only(p, 'contributing', 'changelog')],
   ['tests', 'ci/test only', p => only(p, 'tests', 'ci')],
+  // by kind: what the change is, read from its diff
+  ['api', 'api upgrade', p => p.kd === 'api version upgrade'],
+  ['resource', 'new resource', p => p.kd === 'resources added' || p.kd === '1 resource added'],
+  ['datasource', 'new data source', p => p.kd === 'data sources added' || p.kd === 'data source added'],
   ['prop1', 'single property', p => propCount(p) === 1],
   ['prop2-4', '2–4 properties', p => propCount(p) >= 2 && propCount(p) <= 4],
 ];
@@ -608,6 +614,7 @@ const VIEWS = [
   ['small/idle', 'state:open effort<3 idle>60'],
   ['conflicted', 'state:open mergeable:conflicting'],
   ['mergeable', 'state:open mergeable:mergeable'],
+  ['mergeable, behind 30d+', 'state:open mergeable:mergeable behindfor>30'],
   ['examples', 'state:open touches:examples'],
   ['contributing docs', 'state:open touches:contributing'],
   ['ci failing', 'state:open ci:failing'],
@@ -719,7 +726,7 @@ function renderQueue(view) {
   if (!sortOpts.some(([k]) => k === S.sort) && COL[S.sort]) sortOpts.push([S.sort, COL[S.sort].l]); // sorted by a hidden column
   tabControls(`<span>sort <select id="q-sort">${sortOpts.map(([v, l]) => `<option value="${v}"${S.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="plain dirbtn" id="q-dir" title="reverse the order — ${S.dir === 'asc' ? 'reversed now' : 'the column\'s own order now: newest, largest, or a to z first'}">${S.dir === 'asc' ? '▴' : '▾'}</button></span>
     <span>group by <select id="q-group" title="the table in sections, to tackle alike PRs together"><option value="">none</option>${Object.entries(groupings()).sort(byLabel(([, g]) => g.label)).map(([k, g]) => `<option value="${k}"${S.gb === k ? ' selected' : ''}>${g.label}</option>`).join('')}</select></span>${sections ? `<button class="plain" id="q-fold" title="fold every group shut, or unfold them all">${sections.every(sec => shut.has(sec.name)) ? 'unfold all' : 'fold all'}</button>` : ''}
-    <span>show <select id="q-show" title="one kind of PR at a time"><option value="">all</option>${SHOWS.slice().sort(byLabel(sh => sh[1])).map(([k, l]) => `<option value="${k}"${S.sh === k ? ' selected' : ''}>${l}</option>`).join('')}</select></span>
+    <span>show <select id="q-show" title="one kind of PR at a time"><option value="">all · ${fmtNum(M.length)}</option>${SHOWS.slice().sort(byLabel(sh => sh[1])).map(([k, l, test]) => { const n = M.filter(test).length; return `<option value="${k}"${S.sh === k ? ' selected' : ''}${n ? '' : ' class="none" title="no PR matching the filter is this kind"'}>${l} · ${n ? fmtNum(n) : 'none'}</option>`; }).join('')}</select></span>
     <span class="picker" id="viewpick" title="ready-made queries; tick as many as apply — the query box shows the result"><button class="plain pick${on.length ? ' on' : ''}" type="button">filter <span class="dim">${on.length ? (on.length <= 2 ? on.map(f => f[0]).join(', ') : `${on[0][0]} +${on.length - 1}`) : S.q ? 'custom query' : 'none'}</span></button>
       <div class="pop"${filterPopOpen ? '' : ' hidden'}><div class="opt reset" data-v=""><span class="sw all"></span><span class="name">none</span></div>${VIEWS.slice().sort(byLabel(f => f[0])).map(([l, fq]) => `<div class="opt${on.some(f => f[0] === l) ? ' on' : ''}" data-v="${esc(l)}"><span class="sw"></span><span class="name">${esc(l)}</span><span class="desc">${esc(fq.replace(/^state:open /, ''))}</span></div>`).join('')}</div></span>
     ${colPicker(cols)}
@@ -782,7 +789,7 @@ const EXPORT_VALUE = {
   n: p => p.n, t: p => p.t, a: p => p.a, ef: p => p.ef, d: p => p.d ? 'yes' : '', props: p => propCount(p) || '',
   tests: p => p.tc ? p.tc.s : '', tfail: p => p.tc ? p.tc.f : '', tpass: p => p.tc ? p.tc.p : '', tsince: p => testsSince(p) ?? '',
   kd: p => p.kd || '',
-  cifail: p => (p.cif || []).join(', '), behind: p => p.bh ?? '', drift: p => p.cdr ?? '',
+  cifail: p => (p.cif || []).join(', '), behind: p => p.bh ?? '', behindfor: p => behindFor(p) == null ? '' : Math.round(behindFor(p)), drift: p => p.cdr ?? '',
   k: p => p.k.join(', '), sv: p => p.sv.join(', '), l: p => p.l.join(', '), rw: p => p.rw.join(', '), rb: p => p.rb.join(', '), ab: p => p.ab.join(', '),
   cb: p => p.cb.map(c => c.l).join(', '), li: p => (p.li || []).join(', '), checks: p => p.checks.map(c => c.check).join(', '),
 };
@@ -974,7 +981,7 @@ function reviewCard(p) {
 }
 function mergeCard(p) {
   const v = p.mg === 'conflicting' ? 'conflicting' : p.mg === 'mergeable' ? 'mergeable' : p.mg || 'unknown';
-  return card('merge', v, { conflicting: 'bad', mergeable: 'ok' }[v] || 'dim', p.bh == null ? '' : p.bh ? `${commits(p.bh)} behind its base` : 'up to date with its base');
+  return card('merge', v, { conflicting: 'bad', mergeable: 'ok' }[v] || 'dim', p.bh == null ? '' : p.bh ? `${commits(p.bh)} behind its base${p.bhs ? `, for ${fmtDays(behindFor(p))}` : ''}` : 'up to date with its base');
 }
 function detail(p) {
   const start = p.c, end = p.x || NOW, span = Math.max(end - start, 1);
@@ -1463,8 +1470,8 @@ function viewPromptSections(ask, full) {
 Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: prs (a sortable table), trends (metric panels over time), suggested (easy reviews), services, people (authors and reviewers), checks (close candidates), data (one month's closed and merged PRs, for a spreadsheet).
 Answer with ONE json code block and nothing else, in exactly this form:
 {"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
-The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
-PRs keys: tab=prs, sort=<column key> (omitted means u, the most recently updated first), dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|tests|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
+The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
+PRs keys: tab=prs, sort=<column key> (omitted means u, the most recently updated first), dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|tests|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|api|resource|datasource|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, an api version upgrade, a new resource, a new data source, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
 Trends keys: tab=trends, gran=day|week|month, cols=1|2|3, marks=major|minor|none (release markers).
 - m: the panels, separated by |. Each panel is an optional flag prefix then a comma separated list of metric keys: "s:" stacks the series as areas (only for same-unit series that add up, like the review statuses or opened-by-group), "b:" draws bars, "sb:" stacked bars, "t:" shows the panel as a table, "w:" makes the panel span the grid; flags combine ("sbw:"). A key prefixed with ! goes on the right-hand axis, with ~ it is plotted but hidden until the user clicks its legend entry (useful for a dominant series that would flatten the others); a panel may mix at most two units and the second unit is put on the right automatically.
 - Put closely related series together; 3 to 8 panels is a good view; order them from the most important down. The name should say what the view is about.

@@ -135,7 +135,7 @@ func (j *Judge) Blocks(pass, promptText string, items []JudgeItem,
 		uncached = append(uncached, &target{item: it, hash: hash})
 	}
 
-	cout.Printf("AI %s check: <yellow>%d</> candidates <gray>·</> <yellow>%d</> to evaluate via ai, <gray>%d already cached</> <gray>·</> <cyan>%s</> <gray>· model:</> <lightCyan>%s</>\n",
+	cout.Printf("AI %s check: <yellow>%d</> candidates <gray>·</> <yellow>%d</> to evaluate via ai, <yellow>%d</><gray> already cached</> <gray>·</> <cyan>%s</> <gray>· model:</> <lightCyan>%s</>\n",
 		pass, len(cached)+len(uncached), len(uncached), len(cached), j.cmd, j.model)
 
 	buildPrompt := func(batch []*target) string {

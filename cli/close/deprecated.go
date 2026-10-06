@@ -135,7 +135,7 @@ func (f *Flags) Deprecated(link string) error {
 		}
 	}
 	if len(col.noisy) > 0 {
-		cout.Printf("  <gray>skipped %d too-generic property tokens: %s</>\n", len(col.noisy), text.TruncateRunes(strings.Join(col.noisy, " "), 100))
+		cout.Printf("  <gray>skipped </><yellow>%d</><gray> too-generic property tokens: %s</>\n", len(col.noisy), text.TruncateRunes(strings.Join(col.noisy, " "), 100))
 	}
 	cout.Printf("  <gray>%s</>\n", keepSummary(col.protected))
 	if len(findings) == 0 {
@@ -630,7 +630,7 @@ func (f *Flags) printDeprecatedCard(fdg *deprecatedFinding, pos, total int, v *p
 	shown := 0
 	for _, m := range fdg.matches {
 		if shown == 6 {
-			cout.Printf("      <gray>… and %d more</>\n", len(fdg.matches)-shown)
+			cout.Printf("      <gray>… and </><yellow>%d</><gray> more</>\n", len(fdg.matches)-shown)
 			break
 		}
 		shown++

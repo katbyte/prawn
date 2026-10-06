@@ -225,7 +225,7 @@ query($owner: String!, $name: String!, $cursor: String) {
     pullRequests(first: 100, after: $cursor, states: [OPEN]) {
       totalCount
       pageInfo { endCursor hasNextPage }
-      nodes { number mergeable baseRefName commits(last: 1) { nodes { commit { statusCheckRollup { state } checkSuites(last: 30) { nodes { updatedAt conclusion } } } } } }
+      nodes { number mergeable baseRefName headRefOid commits(last: 1) { nodes { commit { statusCheckRollup { state } checkSuites(last: 30) { nodes { updatedAt conclusion } } } } } }
     }
   }
 }`
@@ -239,6 +239,7 @@ type OpenPRStatus struct {
 	CIRanAt    time.Time // when the head commit's checks last finished — a re-run moves it — zero without checks
 	CIAwaiting int       // workflows on the head commit github is holding until a maintainer approves them, when they outnumber the ones that ran; else 0
 	BaseRef    string    // the branch it merges into
+	HeadOid    string    // the PR's head commit: what its merge base is measured from
 }
 
 // OpenPRNumbers pages every open PR's number, mergeability, and CI state. The
@@ -259,6 +260,7 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 						Number      int    `json:"number"`
 						Mergeable   string `json:"mergeable"`
 						BaseRefName string `json:"baseRefName"`
+						HeadRefOid  string `json:"headRefOid"`
 						Commits     struct {
 							Nodes []struct {
 								Commit struct {
@@ -282,7 +284,7 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 			return nil, fmt.Errorf("fetching open PR numbers: %w", err)
 		}
 		for _, n := range resp.Repository.PullRequests.Nodes {
-			st := OpenPRStatus{Mergeable: n.Mergeable, BaseRef: n.BaseRefName}
+			st := OpenPRStatus{Mergeable: n.Mergeable, BaseRef: n.BaseRefName, HeadOid: n.HeadRefOid}
 			if len(n.Commits.Nodes) > 0 {
 				head := n.Commits.Nodes[0].Commit
 				st.CheckState = head.StatusCheckRollup.State

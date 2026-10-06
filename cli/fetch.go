@@ -214,7 +214,7 @@ func (f *FlagData) walkPRs(d *db.DB, client *gh.Client, owner, name string) erro
 			return err
 		}
 		fetched += len(page.PRs)
-		cout.Printf("  <gray>%d/%d fetched · rate limit: %d remaining</>\n", fetched, page.TotalCount, page.RateLimit.Remaining)
+		cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> fetched · rate limit: </><yellow>%d</><gray> remaining</>\n", fetched, page.TotalCount, page.RateLimit.Remaining)
 		page.RateLimit.WaitIfLow()
 		if !page.PageInfo.HasNextPage {
 			break
@@ -245,14 +245,14 @@ func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) erro
 			// a page github cannot assemble fails every retry and would stop every sync at the
 			// same PR: go on from here a PR at a time, as the backfill does
 			if pageSize > gh.UpdatedPRsSmallPage {
-				cout.Printf("  <yellow>page failed (%v) — carrying on a PR at a time</>\n", err)
+				cout.Printf("  <fg=208>page failed (%v) — carrying on a PR at a time</>\n", err)
 				pageSize = gh.UpdatedPRsSmallPage
 				continue
 			}
 			return err
 		}
 		if page.PRCount > 900 {
-			cout.Printf("<yellow>%d PRs updated since the last sync — the search cap looms, re-walking instead</>\n", page.PRCount)
+			cout.Printf("<fg=208>%d PRs updated since the last sync — the search cap looms, re-walking instead</>\n", page.PRCount)
 			if err := d.DeleteMeta(metaWalkCursor); err != nil {
 				return err
 			}
@@ -262,7 +262,7 @@ func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) erro
 			return err
 		}
 		fetched += len(page.PRs)
-		cout.Printf("  <gray>%d/%d synced · rate limit: %d remaining</>\n", fetched, page.PRCount, page.RateLimit.Remaining)
+		cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> synced · rate limit: </><yellow>%d</><gray> remaining</>\n", fetched, page.PRCount, page.RateLimit.Remaining)
 		page.RateLimit.WaitIfLow()
 		if !page.PageInfo.HasNextPage {
 			return nil
@@ -339,7 +339,7 @@ func (f *FlagData) backfill(d *db.DB, client *gh.Client, owner, name string, sin
 			return err
 		}
 	}
-	cout.Printf("  <gray>backfill complete: %d closed PRs fetched</>\n", fetched)
+	cout.Printf("  <gray>backfill complete: </><yellow>%d</><gray> closed PRs fetched</>\n", fetched)
 	return nil
 }
 
@@ -376,7 +376,7 @@ func (f *FlagData) backfillWindow(d *db.DB, client *gh.Client, owner, name strin
 			// fails is too heavy for the gateway — take the rest of the window
 			// in small bites before giving up
 			if pageSize > gh.ClosedPRsSmallPage {
-				cout.Printf("  <yellow>page failed (%v) — retrying this window in pages of %d</>\n", err, gh.ClosedPRsSmallPage)
+				cout.Printf("  <fg=208>page failed (%v) — retrying this window in pages of %d</>\n", err, gh.ClosedPRsSmallPage)
 				pageSize = gh.ClosedPRsSmallPage
 				continue
 			}
@@ -386,7 +386,7 @@ func (f *FlagData) backfillWindow(d *db.DB, client *gh.Client, owner, name strin
 			return fetched, err
 		}
 		fetched += len(page.PRs)
-		cout.Printf("  <gray>%s..%s: %d/%d fetched · rate limit: %d remaining</>\n",
+		cout.Printf("  <gray>%s..%s: </><yellow>%d</><gray>/</><yellow>%d</><gray> fetched · rate limit: </><yellow>%d</><gray> remaining</>\n",
 			from.Format("2006-01-02"), last.Format("2006-01-02"), fetched, page.PRCount, page.RateLimit.Remaining)
 		page.RateLimit.WaitIfLow()
 		if !page.PageInfo.HasNextPage {
@@ -435,7 +435,7 @@ func (*FlagData) syncTimelines(d *db.DB, client *gh.Client, owner, name string) 
 			cursor = next
 		}
 		if (i+1)%25 == 0 || i+1 == len(numbers) {
-			cout.Printf("  <gray>%d/%d timelines completed (%d pages)</>\n", i+1, len(numbers), pages)
+			cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> timelines completed (</><yellow>%d</><gray> pages)</>\n", i+1, len(numbers), pages)
 		}
 	}
 	return nil
@@ -471,9 +471,9 @@ func timelineRows(number int, nodes []json.RawMessage) ([]db.Event, []db.Commit)
 // of it — catches closes the search-index lag hides — and refreshes every
 // open PR's mergeability and CI state, which change without the PR's
 // updatedAt moving and so are invisible to the incremental sync.
-func (*FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) error {
+func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) error {
 	open, err := client.OpenPRNumbers(owner, name, func(fetched, total int) {
-		cout.Verbosef("  <gray>reconcile: %d/%d open PR numbers</>\n", fetched, total)
+		cout.Verbosef("  <gray>reconcile: </><yellow>%d</><gray>/</><yellow>%d</><gray> open PR numbers</>\n", fetched, total)
 	})
 	if err != nil {
 		return err
@@ -498,7 +498,7 @@ func (*FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) erro
 		statuses[number] = db.PRStatus{Mergeable: st.Mergeable, CheckState: st.CheckState}
 	}
 	if len(gone) > 0 {
-		cout.Printf("  <gray>reconcile: %d locally-open PRs are no longer open on github — marked closed</>\n", len(gone))
+		cout.Printf("  <gray>reconcile: </><yellow>%d</><gray> locally-open PRs are no longer open on github — marked closed</>\n", len(gone))
 		if err := d.MarkPRsClosed(gone); err != nil {
 			return err
 		}
@@ -507,14 +507,18 @@ func (*FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) erro
 	if err != nil {
 		return err
 	}
-	cout.Verbosef("  <gray>reconcile: mergeability and CI refreshed on %d open PRs, %d changed</>\n", len(statuses), changed)
+	cout.Verbosef("  <gray>reconcile: mergeability and CI refreshed on </><yellow>%d</><gray> open PRs, </><yellow>%d</><gray> changed</>\n", len(statuses), changed)
 
 	// the detail behind the CI state is worth having and not worth failing a fetch over
 	current := make(map[int]gh.OpenPRStatus, len(statuses))
 	for number := range statuses {
 		current[number] = open[number]
 	}
-	if err := syncCI(d, client, owner, name, current); err != nil {
+	repo, rerr := f.NewRepo()
+	if rerr != nil {
+		return rerr
+	}
+	if err := syncCI(d, client, repo, owner, name, current); err != nil {
 		clog.Log.Warnf("ci detail not refreshed: %v", err)
 	}
 	return nil
@@ -544,7 +548,7 @@ func settleMergeable(client *gh.Client, owner, name string, open map[int]gh.Open
 			return
 		}
 		slices.Sort(ask)
-		cout.Verbosef("  <gray>reconcile: mergeability of %d PRs not worked out yet — asking again (%d/%d)</>\n", len(ask), pass, mergeablePasses)
+		cout.Verbosef("  <gray>reconcile: mergeability of </><yellow>%d</><gray> PRs not worked out yet — asking again (</><yellow>%d</><gray>/</><yellow>%d</><gray>)</>\n", len(ask), pass, mergeablePasses)
 		time.Sleep(mergeableWait)
 		got, err := client.Mergeable(owner, name, ask)
 		if err != nil {
@@ -564,7 +568,7 @@ func settleMergeable(client *gh.Client, owner, name string, open map[int]gh.Open
 // and how many commits the base has had since the checks last ran. A few
 // dozen requests a fetch; the walk that produced open already carries when
 // the checks ran.
-func syncCI(d *db.DB, client *gh.Client, owner, name string, open map[int]gh.OpenPRStatus) error {
+func syncCI(d *db.DB, client *gh.Client, repo gh.Repo, owner, name string, open map[int]gh.OpenPRStatus) error {
 	failing := map[int]bool{}
 	var red []int
 	byBase := map[string]map[int]time.Time{}
@@ -588,25 +592,59 @@ func syncCI(d *db.DB, client *gh.Client, owner, name string, open map[int]gh.Ope
 	}
 	distances := map[int]gh.BaseDistance{}
 	for base, prs := range byBase {
-		ds, err := client.BaseDistances(owner, name, base, prs)
-		if err != nil {
-			return err
+		ds, derr := client.BaseDistances(owner, name, base, prs)
+		if derr != nil {
+			return derr
 		}
 		maps.Copy(distances, ds)
 	}
 
+	known, err := d.AllCI()
+	if err != nil {
+		return err
+	}
 	cis := make([]db.CI, 0, len(open))
+	var ask []int // behind, and the head moved (or never asked): the merge base is asked again
 	for number, st := range open {
-		ci := db.CI{PRNumber: number, RanAt: st.CIRanAt, Awaiting: st.CIAwaiting, Failing: checks[number], Behind: -1, Ahead: -1, Drift: -1}
+		ci := db.CI{PRNumber: number, RanAt: st.CIRanAt, Awaiting: st.CIAwaiting, Failing: checks[number], Behind: -1, Ahead: -1, Drift: -1, HeadOid: st.HeadOid}
 		if dist, ok := distances[number]; ok {
 			ci.Behind, ci.Ahead, ci.Drift = dist.Behind, dist.Ahead, dist.Drift
 		}
+		if k, ok := known[number]; ok && ci.Behind > 0 && st.HeadOid != "" && k.HeadOid == st.HeadOid && !k.BehindSince.IsZero() {
+			ci.BehindSince = k.BehindSince
+		} else if ci.Behind > 0 && st.BaseRef != "" {
+			ask = append(ask, number)
+		}
 		cis = append(cis, ci)
+	}
+	if len(ask) > 0 {
+		cout.Printf("  <gray>reconcile: how long </><yellow>%d</><gray> PRs have been behind their base (one request each, kept until they change)...</>\n", len(ask))
+		at := map[int]time.Time{}
+		failed := 0
+		for i, number := range ask {
+			if t, merr := repo.MergeBase(open[number].BaseRef, number); merr == nil {
+				at[number] = t
+			} else {
+				failed++
+				clog.Log.Debugf("merge base of #%d: %v", number, merr)
+			}
+			if (i+1)%50 == 0 {
+				cout.Verbosef("  <yellow>%d</><gray>/</><yellow>%d</>\n", i+1, len(ask))
+			}
+		}
+		for i := range cis {
+			if t, ok := at[cis[i].PRNumber]; ok {
+				cis[i].BehindSince = t
+			}
+		}
+		if failed > 0 {
+			clog.Log.Warnf("how long %d PRs have been behind their base is not known: github would not compare them", failed)
+		}
 	}
 	if err := d.SaveCI(cis, failing); err != nil {
 		return err
 	}
-	cout.Verbosef("  <gray>reconcile: ci detail on %d open PRs — %d failing, %d measured against their base</>\n", len(cis), len(red), len(distances))
+	cout.Verbosef("  <gray>reconcile: ci detail on </><yellow>%d</><gray> open PRs — </><yellow>%d</><gray> failing, </><yellow>%d</><gray> measured against their base</>\n", len(cis), len(red), len(distances))
 	return nil
 }
 
@@ -644,7 +682,7 @@ func (f *FlagData) syncTests(d *db.DB, full bool) error {
 	ctx := context.Background()
 	client := tc.New(f.TC.Server, f.TC.Token)
 	builds, err := client.PRBuilds(ctx, f.TC.Project, since, func(fetched int) {
-		cout.Verbosef("  <gray>%d builds</>\n", fetched)
+		cout.Verbosef("  <yellow>%d</><gray> builds</>\n", fetched)
 	})
 	if err != nil {
 		return err
@@ -677,7 +715,7 @@ func (f *FlagData) syncTests(d *db.DB, full bool) error {
 			return err
 		}
 	}
-	cout.Printf("  <gray>%d test builds, the failed tests of %d named</>\n", len(rows), len(wanting))
+	cout.Printf("  <yellow>%d</><gray> test builds, the failed tests of </><yellow>%d</><gray> named</>\n", len(rows), len(wanting))
 	return d.SetMeta(metaTCLastSync, start.Format(time.RFC3339))
 }
 
@@ -730,12 +768,12 @@ func (f *FlagData) syncDiffs(d *db.DB) error {
 			return err
 		}
 		if (i+1)%25 == 0 || i+1 == len(stale) {
-			cout.Printf("  <gray>%d/%d diffs fetched</>\n", i+1, len(stale))
+			cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> diffs fetched</>\n", i+1, len(stale))
 		}
 		time.Sleep(diffThrottle)
 	}
 	if tooLarge > 0 {
-		cout.Printf("  <gray>%d diffs too large for github to render — those PRs are matched on files and text only</>\n", tooLarge)
+		cout.Printf("  <yellow>%d</><gray> diffs too large for github to render — those PRs are matched on files and text only</>\n", tooLarge)
 	}
 	return nil
 }
@@ -867,7 +905,7 @@ func (f *FlagData) Stats() error {
 		return err
 	}
 	cout.Printf("%s\n", f.RepoTag())
-	cout.Printf("  %-16s <yellow>%d</> <gray>(%d known)</>\n", "open PRs", open, total)
+	cout.Printf("  %-16s <yellow>%d</> <gray>(</><yellow>%d</><gray> known)</>\n", "open PRs", open, total)
 
 	prs, err := d.OpenPRs()
 	if err != nil {
@@ -914,7 +952,7 @@ func (f *FlagData) Reopen(number int) error {
 	}
 
 	if f.DryRun {
-		cout.Printf("<yellow>dry-run: would reopen</> <cyan>#%d</> <darkGray>%s</>\n", number, f.PRURL(number))
+		cout.Printf("<fg=208>dry-run: would reopen</> <cyan>#%d</> <darkGray>%s</>\n", number, f.PRURL(number))
 		return nil
 	}
 
