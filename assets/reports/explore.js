@@ -502,11 +502,11 @@ col('cd', 'in court', 'days in the current court', p => fmtDays(p.cd), p => p.cd
 col('age', 'age', 'days since the PR opened', p => fmtDays(p.age), p => p.age, { cls: 'num', hi: true });
 col('idle', 'idle', 'days since the last human activity', p => fmtDays(p.idle), p => p.idle, { cls: 'num', hi: true });
 col('ef', 'effort', 'review effort 1..5 from the diff shape', p => `<span class="eff" title="review effort ${p.ef}/5 · +${p.ad}/−${p.de} over ${p.f} files">${'<b>●</b>'.repeat(p.ef)}${'○'.repeat(5 - p.ef)}</span>`, p => p.ef, { s: (a, b) => a.ef - b.ef || b.age - a.age });
-col('size', '±', 'lines added and deleted', p => `+${fmtNum(p.ad)}/−${fmtNum(p.de)}`, p => p.size, { cls: 'num', hi: true });
+col('size', 'size', 'lines added and deleted', p => `+${fmtNum(p.ad)}/−${fmtNum(p.de)}`, p => p.size, { cls: 'num', hi: true });
 col('f', 'files', 'files changed', p => fmtNum(p.f), p => p.f, { cls: 'num', hi: true });
 col('props', 'props', 'schema properties the diff adds or changes on existing resources — read from the diff (schema keys, model tags, docs bullets), open PRs only', p => (p.pp || []).length ? `<span title="${esc(p.pp.join(', '))}">${p.pp.length}</span>` : '', p => (p.pp || []).length, { cls: 'num', hi: true });
 col('kd', 'kind', 'what sort of change it is, read from the diff: the first that fits of resources added, data sources added, api version upgrade, properties added or changed, test fix, documentation… — open PRs only', p => p.kd ? `<span class="clk" data-q="kind:&quot;${esc(p.kd)}&quot;">${esc(p.kd)}</span>` : '', p => p.kd ? KIND_ORDER.indexOf(p.kd) : 999);
-col('k', 'files', 'the kinds of file it changes', p => p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join(''), p => p.k[0] || LAST);
+col('k', 'file types', 'the kinds of file it changes', p => p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join(''), p => p.k[0] || LAST);
 col('sv', 'services', 'the services touched (internal/services/<name>)', p => p.sv.slice(0, 3).map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('') + (p.sv.length > 3 ? `<span class="badge">+${p.sv.length - 3}</span>` : ''), p => p.sv[0] || LAST);
 col('l', 'labels', 'the labels', p => p.l.slice(0, 4).map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('') + (p.l.length > 4 ? `<span class="badge">+${p.l.length - 4}</span>` : ''), p => p.l[0] || LAST);
 col('ms', 'milestone', 'the milestone', p => esc(p.ms || ''), p => p.ms || LAST);
@@ -593,7 +593,7 @@ col('m', 'merged', 'when it merged', p => p.m ? fmtDate(p.m) : '', p => p.m || 0
 col('li', 'closes', 'the issues its closing keywords reference', p => p.li.map(n => `<a href="https://github.com/${D.repo}/issues/${n}" target="_blank" rel="noopener" onclick="event.stopPropagation()">#${n}</a>`).join(' '), p => p.li.length, { hi: true });
 col('aiMax', 'ai', 'the highest AI close score', p => p.aiMax == null ? '' : `<span title="${esc(Object.entries(p.ai).map(([k, v]) => k + ' ' + v.toFixed(2)).join(', '))}">${p.aiMax.toFixed(2)}</span>`, p => p.aiMax, { cls: 'num', hi: true });
 col('checks', 'checks', 'the close checks that flagged it', p => p.checks.map(c => `<span class="badge">${esc(c.check)}${c.score ? ' ' + c.score : ''}</span>`).join(''), p => p.checks.length, { hi: true });
-const DEFAULT_COLS = ['n', 't', 'a', 's', 'ct', 'age', 'idle', 'u', 'ef', 'size', 'sv', 'l', 'rr', 'fr', 'aiMax'];
+const DEFAULT_COLS = ['n', 't', 'a', 's', 'ct', 'age', 'idle', 'u', 'ef', 'size', 'f', 'sv', 'l', 'rr', 'fr', 'aiMax'];
 // the columns shown, in order: the dc hash key, or the default; unknown keys (an older view) are dropped
 const visibleCols = () => { const ks = (S.dc ? S.dc.split(',') : DEFAULT_COLS).filter(k => COL[k]); return (ks.length ? ks : DEFAULT_COLS).map(k => COL[k]); };
 const setCols = keys => set('dc', keys.join(',') === DEFAULT_COLS.join(',') ? '' : keys.join(','));
