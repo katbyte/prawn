@@ -18,10 +18,12 @@ and are recorded so `prawn reopen` can undo them.
 
 ## Installation
 
+Download a binary for your platform from the [latest release](https://github.com/katbyte/prawn/releases/latest)
+(signed with cosign, with build provenance), or:
+
 ```bash
-brew install katbyte/tap/prawn
-# or
 go install github.com/katbyte/prawn@latest
+docker pull ghcr.io/katbyte/prawn:latest   # the server, see Docker below
 ```
 
 ## Usage
@@ -76,19 +78,29 @@ export PRAWN_GROUP_MEMBERS=katbyte,jackofallops   # author groups, any number of
 export PRAWN_GROUP_PARTNERS=magodo,wodansson
 prawn fetch                       # github, and teamcity's test builds when TC_* is set; fetch gh / fetch tc for one alone
 prawn explore                     # -> report/explore.html
-prawn explore --serve 8765        # ...and serve it, for other machines on the network; its refresh button re-fetches and rebuilds
+prawn explore --serve 8765        # ...and serve it, for other machines on the network
 ```
 
 One self-contained page over every PR open at any point in the period, with a filter bar, and six tabs picked from the dropdown in the header:
 
-- **prs** — the matching PRs as a table; pick, reorder, and sort the columns, **group by** kind (1 property added, 1 resource added, api version upgrade, test fix…), suggested category, documentation type, service, court, status, ci, failing check, tests, author group, effort, or author to tackle alike PRs together (a group folds on a click), or **show** only one kind (approved, docs only, ci/test only, a single property, 2–4 properties); **export** the table as a csv with the columns you pick; open a row for the PR's timeline
+- **prs** — the matching PRs as a table: pick, reorder, and sort the columns; **group by** kind (1 property added, 1 resource added, api version upgrade, test fix…), suggested category, service, court, status, ci, failing check, tests, author group, effort, or author to tackle alike PRs together; **show** only one sort of PR; **open** them all in tabs; **export** them as csv, a copy for a spreadsheet, or markdown for slack or github. Click a row for the PR's detail: what the change is, its life as a bar of states, ci, tests, review, mergeability, what is failing, and its timeline
 - **trends** — metrics over time: backlog, flow, review status, times, review load, and quality by author group
 - **suggested** — easy wins by category (docs only, approved but unmerged, small and unanswered, …) or by service
 - **people** — authors and reviewers
-- **services** — services, kinds of change, labels
+- **services** — services, the kinds of file changed, labels
 - **checks** — the close candidates, restricted to the filter
 
 Every control lives in the url, so a view is a link, and views can be saved, downloaded, and pasted.
+
+**CI and tests.** Each `fetch` records every open PR's checks: passing, failing (which checks, and for how
+long), running, waiting for a maintainer to approve a fork's workflows, or expired. It also records how
+far the PR is behind its base and how stale the result is. With `TC_SERVER`, `TC_TOKEN` and `TC_PROJECT`
+set, it also collects the acceptance test builds TeamCity ran for each PR, with the failed tests named.
+Read-only: prawn never starts a build.
+
+**Served** with `--serve`, the page gets two buttons. **refresh** has the server sync and rebuild while a
+window shows its progress. **db** downloads the server's database or uploads one in its place. Every
+request is logged, naming the viewer when a login proxy in front sets `X-Forwarded-User` or similar.
 
 ## Docker
 
@@ -96,19 +108,21 @@ A container that keeps the explore page fresh and serves it: `prawn explore --se
 a cron job inside refreshes the page on a schedule (`EXPLORE_CRON`, set in `docker-compose.yml`).
 
 ```bash
-# .prawn holds GITHUB_TOKEN, PRAWN_REPO, PRAWN_SINCE, PRAWN_GROUP_<name>... — the same file the cli reads
-make docker            # or `docker compose pull` once a release has published the image
+# .prawn holds GITHUB_TOKEN, PRAWN_REPO, PRAWN_SINCE, PRAWN_GROUP_<name>, TC_*... — the same file the cli reads
+docker compose pull    # ghcr.io/katbyte/prawn, published on each release; `make docker` builds it from a checkout
 docker compose up -d   # -> http://localhost:8765/ ; the db and the page live in ./data
 ```
 
-The first start of an empty `./data` walks the whole repo before the page appears. The page is open to
+On the first start with an empty `./data`, the page is empty until the first sync has walked the whole
+repo, which takes hours. The page is open to
 anyone who can reach the port, so put a login in front of it (oauth2-proxy, Cloudflare Access) before
 exposing it beyond the local network.
 
-To skip that walk and start from a database fetched elsewhere, either copy it to `./data/prs.db` before the first start, or bring the
-container up and use the page's **db** button (top right, beside refresh): **upload** puts a database in
-the server's place and rebuilds the page from it, **download** saves the server's as `prs.<yyyymmdd>.db`.
-The uploaded file is checked first, and the one it replaces is kept as `prs.db.replaced`.
+To skip that walk, start from a database fetched elsewhere. Either copy it to `./data/prs.db` before the
+first start, or bring the container up and use the page's **db** button (top right, beside refresh).
+**upload** puts a database in the server's place and rebuilds the page from it; **download** saves the
+server's as `prs.<yyyymmdd>.db`. An upload is checked first, and the one it replaces is kept as
+`prs.db.replaced`.
 
 ## Configuration
 
