@@ -28,6 +28,7 @@ import (
 	"github.com/katbyte/prawn/cli"
 	"github.com/katbyte/prawn/cli/close"
 	"github.com/katbyte/prawn/lib/explore"
+	"github.com/katbyte/prawn/lib/pr"
 )
 
 // Command returns prawn explore.
@@ -220,12 +221,15 @@ func build(f *cli.FlagData, sync int) error {
 	default:
 		cout.Printf("running the close checks for the checks tab...\n")
 		o := cli.FlagsReport{WithAI: f.Cmd.Report.WithAI, Limit: f.Cmd.Report.Limit}
+		// a check that fails costs the checks tab, not the page: the rest of it is built and served either way
 		sections, serr := close.NewFlags(f).ReportSections(d, o, now)
 		if serr != nil {
-			return serr
+			cout.Printf("  <yellow>the checks failed, so the checks tab is empty: %v</>\n", serr)
+			data.ChecksNote = "the checks failed when this page was built: " + serr.Error()
+		} else {
+			data.Checks = checkItems(sections)
+			cout.Printf("  <gray>%d close candidates across %d checks</>\n", len(data.Checks), len(sections))
 		}
-		data.Checks = checkItems(sections)
-		cout.Printf("  <gray>%d close candidates across %d checks</>\n", len(data.Checks), len(sections))
 	}
 
 	out := f.Cmd.Explore.Out
@@ -291,13 +295,12 @@ func checkItems(sections []cli.ReportSection) []explore.CheckItem {
 // releases lists the provider's v* tags since the date, from the checkout.
 func releases(srcDir string, since time.Time) ([]explore.Release, error) {
 	cmd := exec.CommandContext(context.Background(), "git", "-C", srcDir, "tag", "-l", "v*", "--format=%(refname:short) %(creatordate:unix)") //nolint:gosec // srcDir is the user's own checkout
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git tag in %s: %w", srcDir, err)
+	tags, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git tag in %s: %s%w", srcDir, pr.GitSaid(err), err)
 	}
 	var out []explore.Release
-	for line := range strings.SplitSeq(buf.String(), "\n") {
+	for line := range strings.SplitSeq(string(tags), "\n") {
 		tag, ts, ok := strings.Cut(strings.TrimSpace(line), " ")
 		if !ok {
 			continue

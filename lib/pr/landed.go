@@ -2,6 +2,7 @@ package pr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -110,7 +111,7 @@ func LoadHistory(srcDir string) (*History, error) {
 	out, err := exec.CommandContext(context.Background(), "git", "-C", srcDir, "for-each-ref", "--sort=creatordate", //nolint:gosec // G204: srcDir is the user's --src-dir
 		"--format=%(refname:short) %(creatordate:iso-strict)", "refs/tags").Output()
 	if err != nil {
-		return nil, fmt.Errorf("git for-each-ref in %s: %w", srcDir, err)
+		return nil, fmt.Errorf("git for-each-ref in %s: %s%w", srcDir, GitSaid(err), err)
 	}
 	for line := range strings.SplitSeq(string(out), "\n") {
 		name, date, ok := strings.Cut(strings.TrimSpace(line), " ")
@@ -131,7 +132,7 @@ func (h *History) gitBaseFile(before time.Time, path string) ([]byte, error) {
 	rev, err := exec.CommandContext(context.Background(), "git", "-C", h.SrcDir, "rev-list", "-1", //nolint:gosec // G204: srcDir is the user's --src-dir
 		"--before="+before.Format(time.RFC3339), "HEAD").Output()
 	if err != nil {
-		return nil, fmt.Errorf("git rev-list in %s: %w", h.SrcDir, err)
+		return nil, fmt.Errorf("git rev-list in %s: %s%w", h.SrcDir, GitSaid(err), err)
 	}
 	hash := strings.TrimSpace(string(rev))
 	if hash == "" {
@@ -395,4 +396,16 @@ func quoteFor(file, tok string) string {
 		return "`" + tok + "`"
 	}
 	return `"` + tok + `"`
+}
+
+// GitSaid is what git printed on its way out of a failed command, ready to
+// put before the error ("fatal: detected dubious ownership...: "), or "" —
+// an exit status alone does not say what is wrong.
+func GitSaid(err error) string {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
+			return strings.ReplaceAll(msg, "\n", " ") + ": "
+		}
+	}
+	return ""
 }

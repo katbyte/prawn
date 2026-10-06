@@ -1,3 +1,9 @@
+## v0.3.1 (2026-10-06)
+
+- a failing close check no longer stops the page from rebuilding
+- the container trusts a provider checkout owned by another user
+- git errors say what git said
+
 ## v0.3.0 (2026-10-06)
 
 - a **data** tab: a month, a year or any dates at a glance, and the closed and merged PRs in columns you pick, ready to paste

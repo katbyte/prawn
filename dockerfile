@@ -27,6 +27,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -mod=
 # been rebuilt with yet
 FROM alpine:3.24
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates dcron git tzdata
+# the provider checkout lives on the volume, often owned by the host's user: git refuses a repository owned by
+# someone else unless told it is safe, and every git call in it would fail
+RUN git config --system --add safe.directory '*'
 
 # the volume: prawn's defaults put prs.db and report/explore.html under the working directory
 WORKDIR /data

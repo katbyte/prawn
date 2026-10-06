@@ -48,6 +48,10 @@ func (f *FlagData) EnsureSrcDir() error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return fmt.Errorf("the provider checkout %s is not a git repository (empty it, or point PRAWN_SRC_DIR somewhere new, and prawn clones one): %w", dir, err)
 	}
+	// there, but git may still refuse it: a checkout owned by another user ("dubious ownership"), or a clone cut short
+	if _, err := git(dir, "rev-parse", "--git-dir"); err != nil {
+		return fmt.Errorf("git cannot use the provider checkout %s: %w", dir, err)
+	}
 	return nil
 }
 
