@@ -46,11 +46,15 @@ header .views label.plain { display: inline-block; }
 dialog#refreshbox { width: min(820px, calc(100vw - 44px)); }
 #rf-log { margin: 0; height: min(52vh, 460px); overflow: auto; background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font: 11.5px/1.45 ui-monospace, Menlo, monospace; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 #refreshbox button[hidden] { display: none; }
+dialog#dbbox { width: min(520px, calc(100vw - 44px)); }
+#dbbox button[hidden] { display: none; }
+#db-close { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 4px; cursor: pointer; }
+#db-close:hover { color: var(--ink); }
 dialog#openbox { width: min(460px, calc(100vw - 44px)); }
-#exportbox, #openbox, #refreshbox { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; width: min(680px, calc(100vw - 44px)); box-shadow: 0 6px 24px rgba(0,0,0,.2); }
-#exportbox::backdrop, #openbox::backdrop, #refreshbox::backdrop { background: rgba(0,0,0,.45); }
-#exportbox h2, #openbox h2, #refreshbox h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
-#exportbox h2 .desc, #openbox h2 .desc, #refreshbox h2 .desc { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; }
+#exportbox, #openbox, #refreshbox, #dbbox { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; width: min(680px, calc(100vw - 44px)); box-shadow: 0 6px 24px rgba(0,0,0,.2); }
+#exportbox::backdrop, #openbox::backdrop, #refreshbox::backdrop, #dbbox::backdrop { background: rgba(0,0,0,.45); }
+#exportbox h2, #openbox h2, #refreshbox h2, #dbbox h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
+#exportbox h2 .desc, #openbox h2 .desc, #refreshbox h2 .desc, #dbbox h2 .desc { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; }
 #exportbox .pick { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
 #exportbox .pick .links, #exportbox .pick .opt2 { display: flex; gap: 6px; align-items: center; font-weight: 400; color: var(--ink-2); cursor: pointer; }
 #exportbox .pick .links { margin-left: auto; } /* the first of the tick boxes pushed to the right */
@@ -61,10 +65,10 @@ dialog#openbox { width: min(460px, calc(100vw - 44px)); }
 #exportbox .cols label.dragging { opacity: .5; }
 #exportbox .cols label.before { box-shadow: inset 3px 0 0 var(--s1); }
 #exportbox .cols label.after { box-shadow: inset -3px 0 0 var(--s1); }
-#exportbox .row, #openbox .row, #refreshbox .row { display: flex; gap: 6px; align-items: center; margin-top: 12px; }
-#exportbox .row button, #openbox .row button, #refreshbox .row button { white-space: nowrap; flex: none; } /* a long note wraps; the buttons never do */
-#exportbox .row .note, #openbox .row .note, #refreshbox .row .note { margin-right: auto; font-size: 12px; color: var(--muted); }
-#exportbox button.plain.on, #openbox button.plain.on, #refreshbox button.plain.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+#exportbox .row, #openbox .row, #refreshbox .row, #dbbox .row { display: flex; gap: 6px; align-items: center; margin-top: 12px; }
+#exportbox .row button, #openbox .row button, #refreshbox .row button, #dbbox .row button { white-space: nowrap; flex: none; } /* a long note wraps; the buttons never do */
+#exportbox .row .note, #openbox .row .note, #refreshbox .row .note, #dbbox .row .note { margin-right: auto; font-size: 12px; color: var(--muted); }
+#exportbox button.plain.on, #openbox button.plain.on, #refreshbox button.plain.on, #dbbox button.plain.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 #aibox { position: fixed; top: 48px; right: 22px; z-index: 22; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(0,0,0,.2); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; width: min(640px, calc(100vw - 44px)); }
 #aibox input, #aibox textarea { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--axis); border-radius: 6px; background: var(--page); color: var(--ink); width: 100%; }
 #aibox textarea { font-family: ui-monospace, Menlo, monospace; font-size: 11px; resize: vertical; color: var(--ink-2); }
@@ -353,6 +357,7 @@ tr.detail td { background: var(--page); padding: 10px 14px 12px; }
     <button class="plain" id="viewAI" title="have an AI design a view: builds a prompt with the grammar and every metric, and takes its answer back">ai</button>
     </span></span>
     <button class="plain" id="copy-link" title="copy this view's url">copy link</button>
+    <button class="plain" id="db" hidden title="download the server's database, or upload one in its place">db</button>
     <button class="plain" id="refresh" hidden title="fetch what moved on github since this page was built, rebuild it, and reload">refresh</button>
     <button class="theme" type="button" aria-label="toggle dark mode" title="toggle dark mode"
             onclick="var h=document.documentElement,t=h.dataset.theme==='dark'?'light':'dark';h.dataset.theme=t;localStorage.setItem('prawn-theme',t)">
@@ -369,6 +374,12 @@ tr.detail td { background: var(--page); padding: 10px 14px 12px; }
   <h2><span id="rf-head">refresh</span><span class="desc" id="rf-desc"></span></h2>
   <pre id="rf-log"></pre>
   <div class="row"><span class="note"></span><button class="plain" id="rf-close">close</button><button class="plain on" id="rf-again" hidden>refresh again</button><button class="plain on" id="rf-reload" hidden>reload the page</button></div>
+</dialog>
+<dialog id="dbbox">
+  <button id="db-close" title="close" aria-label="close">×</button>
+  <h2>database<span class="desc" id="db-desc"></span></h2>
+  <input type="file" id="db-file" accept=".db,.sqlite,.sqlite3" hidden>
+  <div class="row"><span class="note" id="db-note"></span><button class="plain" id="db-up" title="put a database from this machine in the server's place: it is checked first, the one it replaces is kept beside it, and the page is rebuilt">upload</button><button class="plain on" id="db-down" title="a copy of the server's database as it is now, named with today's date">download</button><button class="plain on" id="db-ok" hidden>replace</button></div>
 </dialog>
 <dialog id="exportbox">
   <h2>export <span id="ex-n"></span><span class="desc">the table as it is filtered, sorted and grouped — every row, not only the ones drawn; <b>only shown</b> leaves out folded groups · tick the columns to write, drag one to reorder</span></h2>

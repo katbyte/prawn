@@ -73,7 +73,7 @@ function set(k, v) { S[k] = v; update(); }
 // keys: author group svc kind label court state effort age idle size files rounds fr reviewer n title draft decision milestone mergeable cd waiting thumbs check ai
 const KEYS = {
   author: p => p.lo, a: p => p.lo, group: p => p.g, g: p => p.g, svc: p => p.sv, service: p => p.sv, s: p => p.sv,
-  kind: p => p.k, k: p => p.k, only: p => p.k.length === 1 ? p.k[0] : 'mixed', label: p => p.l, l: p => p.l, court: p => p.ct, c: p => p.ct, state: p => p.s, st: p => p.s,
+  kind: p => p.kd || (p.s === 'open' ? 'other' : null), touches: p => p.k, k: p => p.k, only: p => p.k.length === 1 ? p.k[0] : 'mixed', label: p => p.l, l: p => p.l, court: p => p.ct, c: p => p.ct, state: p => p.s, st: p => p.s,
   effort: p => p.ef, e: p => p.ef, age: p => p.age, idle: p => p.idle, size: p => p.size, files: p => p.f, rounds: p => p.rr,
   tests: p => p.tc ? p.tc.s : 'none', testsfailed: p => p.tc ? p.tc.f : null, testage: p => testAge(p), testsince: p => testsSince(p), failedtest: p => p.tc && p.tc.ft ? p.tc.ft : [], tested: p => p.tc ? p.tc.b.map(b => b.sv) : [],
   ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], behind: p => p.bh ?? null, ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
@@ -169,7 +169,7 @@ function renderFilters() {
     <label>group<select id="f-g">${opt('', 'any', S.g)}${GROUP_NAMES.map(g => opt(g, g, S.g)).join('')}${opt('community', 'community', S.g)}</select></label>
     <div class="fl">author${picker('f-a', 'a', countBy(p => [p.a]), 'any author')}</div>
     <div class="fl">service${picker('f-svc', 'svc', countBy(p => p.sv), 'any service')}</div>
-    <div class="fl">kind${picker('f-k', 'k', KINDS.map(k => [k, D.prs.filter(p => p.k.length && p.k.every(x => x === k)).length]), 'any kind', 'PRs made of only the picked kinds, from their changed files: schema (resource/data source .go), code (other .go), tests (_test.go), docs (website/, the provider docs), examples (examples/), contributing (contributing/, the contributor guide), vendor (vendor/, go.mod), ci (.github/, scripts/), changelog (.changelog/, CHANGELOG.md); the counts are PRs of exactly that one kind')}</div>
+    <div class="fl">files${picker('f-k', 'k', KINDS.map(k => [k, D.prs.filter(p => p.k.length && p.k.every(x => x === k)).length]), 'any files', 'PRs made of only the picked kinds of file: schema (resource/data source .go), code (other .go), tests (_test.go), docs (website/, the provider docs), examples (examples/), contributing (contributing/, the contributor guide), vendor (vendor/, go.mod), ci (.github/, scripts/), changelog (.changelog/, CHANGELOG.md); the counts are PRs of exactly that one kind')}</div>
     <div class="fl">label${picker('f-l', 'l', countBy(p => p.l), 'any label')}</div>
     <label>court<select id="f-ct">${opt('', 'any', S.ct)}${opt('maintainer', 'maintainer', S.ct)}${opt('author', 'author', S.ct)}</select></label>
     <label>effort<select id="f-ef">${opt('', 'any', S.ef)}${['1-1', '1-2', '1-3', '2-5', '3-5', '4-5', '5-5'].map(r => opt(r, r.replace('-', '–'), S.ef)).join('')}</select></label>
@@ -191,7 +191,7 @@ function renderFilters() {
   syncDraft();
   $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh', 'sort', 'dir']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR, the most recently updated first
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
-    keys: <code>author group svc kind only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind:docs</code> touches docs, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>behind</code> and <code>drift</code> commits against the base branch; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
+    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>behind</code> and <code>drift</code> commits against the base branch; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
 }
 
@@ -505,7 +505,8 @@ col('ef', 'effort', 'review effort 1..5 from the diff shape', p => `<span class=
 col('size', '±', 'lines added and deleted', p => `+${fmtNum(p.ad)}/−${fmtNum(p.de)}`, p => p.size, { cls: 'num', hi: true });
 col('f', 'files', 'files changed', p => fmtNum(p.f), p => p.f, { cls: 'num', hi: true });
 col('props', 'props', 'schema properties the diff adds or changes on existing resources — read from the diff (schema keys, model tags, docs bullets), open PRs only', p => (p.pp || []).length ? `<span title="${esc(p.pp.join(', '))}">${p.pp.length}</span>` : '', p => (p.pp || []).length, { cls: 'num', hi: true });
-col('k', 'kinds', 'the kinds of change, from the changed files', p => p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join(''), p => p.k[0] || LAST);
+col('kd', 'kind', 'what sort of change it is, read from the diff: the first that fits of resources added, data sources added, api version upgrade, properties added or changed, test fix, documentation… — open PRs only', p => p.kd ? `<span class="clk" data-q="kind:&quot;${esc(p.kd)}&quot;">${esc(p.kd)}</span>` : '', p => p.kd ? KIND_ORDER.indexOf(p.kd) : 999);
+col('k', 'files', 'the kinds of file it changes', p => p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join(''), p => p.k[0] || LAST);
 col('sv', 'services', 'the services touched (internal/services/<name>)', p => p.sv.slice(0, 3).map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('') + (p.sv.length > 3 ? `<span class="badge">+${p.sv.length - 3}</span>` : ''), p => p.sv[0] || LAST);
 col('l', 'labels', 'the labels', p => p.l.slice(0, 4).map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('') + (p.l.length > 4 ? `<span class="badge">+${p.l.length - 4}</span>` : ''), p => p.l[0] || LAST);
 col('ms', 'milestone', 'the milestone', p => esc(p.ms || ''), p => p.ms || LAST);
@@ -608,6 +609,7 @@ function colSorter(k) {
   };
   return (a, b) => { const x = c.v(a), y = c.v(b); const r = x == null || y == null ? cmp(x, y) : c.hi ? cmp(y, x) : cmp(x, y); return r || SORT_PRIORITY(a, b); };
 }
+const KIND_ORDER = D.kindOrder || [];
 // show: one kind of PR at a time, on the prs tab — the suggested categories worth a pass of their own, and the property counts
 const propCount = p => (p.pp || []).length;
 const SHOWS = [
@@ -627,8 +629,8 @@ const VIEWS = [
   ['small/idle', 'state:open effort<3 idle>60'],
   ['conflicted', 'state:open mergeable:conflicting'],
   ['mergeable', 'state:open mergeable:mergeable'],
-  ['examples', 'state:open kind:examples'],
-  ['contributing docs', 'state:open kind:contributing'],
+  ['examples', 'state:open touches:examples'],
+  ['contributing docs', 'state:open touches:contributing'],
   ['ci failing', 'state:open ci:failing'],
   ['ci needs approval', 'state:open ci:approval'],
   ['ci not run', 'state:open ci:none'],
@@ -663,6 +665,8 @@ function toggleFilter(q, name) {
   }
   return out.map(t => Array.isArray(t) ? `${t[0]}:${t[1].join(',')}` : t).join(' ');
 }
+// the tab row's dropdowns list their choices a to z, whatever order they are declared in
+const byLabel = label => (a, b) => label(a).localeCompare(label(b), undefined, { numeric: true, sensitivity: 'base' });
 let filterPopOpen = false; // the filter list stays open over the re-render each tick causes, until a click elsewhere
 document.addEventListener('click', e => { if (!e.target.closest('#viewpick')) filterPopOpen = false; });
 let queueLimit = 200;
@@ -672,18 +676,18 @@ const DOC_TYPES = [['docs', 'provider docs'], ['examples', 'examples'], ['contri
 // Built on demand: the suggested categories are declared further down
 const groupings = () => ({
   suggested: { label: 'suggested category', of: p => { if (p.s !== 'open') return 'not open'; const c = CATEGORIES.find(c => c[2](p)); return c ? c[0] : 'everything else'; }, order: [...CATEGORIES.map(c => c[0]), 'everything else', 'not open'], desc: Object.fromEntries(CATEGORIES.map(c => [c[0], c[1]])) },
-  kind: { label: 'kind of change', of: p => p.k.length ? (p.k.length === 1 ? p.k[0] + ' only' : p.k.slice().sort((a, b) => KINDS.indexOf(a) - KINDS.indexOf(b)).join(' + ')) : 'no files' },
+  // kind: what sort of change the PR is, one each, the first that fits — worked out when the page is built, from the diff
+  kind: { label: 'kind', of: p => p.s !== 'open' ? 'not open' : p.kd || 'other', order: [...KIND_ORDER, 'not open'] },
   // documentation: the PRs that are nothing but docs, by which of the three kinds. It drops the rest: a grouping with
   // drop set leaves out the PRs it has no group for, from the table and everything counted or exported from it
   docs: { label: 'documentation', of: p => { const types = DOC_TYPES.filter(([k]) => p.k.includes(k)); return types.length && only(p, ...DOC_TYPES.map(t => t[0]), 'changelog') ? types.map(t => t[1]).join(' + ') : null; }, drop: true,
     order: DOC_TYPES.map(t => t[1]), desc: { 'provider docs': 'the website docs under website/ and nothing else', examples: 'example configurations under examples/ and nothing else', 'contributing docs': 'the contributor guide under contributing/ and nothing else' } },
   service: { label: 'service', of: p => p.sv.length === 0 ? 'no service' : p.sv.length === 1 ? p.sv[0] : 'several services' },
   court: { label: 'court', of: p => p.s !== 'open' ? p.s : p.ct + "'s court" },
-  status: { label: 'status today', of: p => p.s !== 'open' ? p.s : p.status || 'open', order: [...STATE_NAMES, 'open', 'merged', 'closed'] },
+  status: { label: 'status', of: p => p.s !== 'open' ? p.s : p.status || 'open', order: [...STATE_NAMES, 'open', 'merged', 'closed'] },
   ci: { label: 'ci', of: p => p.s !== 'open' ? 'not open' : 'ci ' + ciName(p), order: ['ci failing', 'ci needs approval', 'ci not run', 'ci running', 'ci passing', 'ci expired', 'not open'], desc: { 'ci needs approval': 'github is holding the workflows of a fork until a maintainer clicks approve and run — one click each', 'ci not run': 'no checks on a recent head commit — often a first-time contributor\'s workflows waiting to be approved', 'ci expired': 'the head commit is over 400 days old and github has dropped its check results — a new commit runs them again' } },
   cifail: { label: 'failing check', of: p => p.ci !== 'failing' ? 'not failing' : (p.cif || []).length === 0 ? 'failing, check unknown' : p.cif.length === 1 ? p.cif[0] + ' only' : p.cif.join(' + '), last: ['failing, check unknown', 'not failing'] },
   tests: { label: 'tests', of: p => p.s !== 'open' ? 'not open' : p.tc ? 'tests ' + p.tc.s : 'never tested', order: ['tests failing', 'tests running', 'tests passing', 'tests cancelled', 'never tested', 'not open'], desc: { 'tests failing': 'the latest teamcity build of at least one service failed tests', 'tests passing': 'the latest build of every service it was tested for passed', 'never tested': 'teamcity has no build for it' } },
-  props: { label: 'properties changed', of: p => { const n = propCount(p); return n === 0 ? 'no property' : n === 1 ? 'single property' : n <= 4 ? '2–4 properties' : '5 or more properties'; }, order: ['single property', '2–4 properties', '5 or more properties', 'no property'] },
   group: { label: 'author group', of: p => p.g, order: [...GROUP_NAMES, 'community'] },
   effort: { label: 'effort', of: p => 'effort ' + p.ef, order: ['effort 1', 'effort 2', 'effort 3', 'effort 4', 'effort 5'] },
   author: { label: 'author', of: p => p.a },
@@ -736,10 +740,10 @@ function renderQueue(view) {
   if (!sortOpts.some(([k]) => k === S.sort) && COL[S.sort]) sortOpts.push([S.sort, COL[S.sort].l]); // sorted by a hidden column
   const shown = new Set(cols.map(c => c.k));
   tabControls(`<span>sort <select id="q-sort">${sortOpts.map(([v, l]) => `<option value="${v}"${S.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="plain dirbtn" id="q-dir" title="reverse the order — ${S.dir === 'asc' ? 'reversed now' : 'the column\'s own order now: newest, largest, or a to z first'}">${S.dir === 'asc' ? '▴' : '▾'}</button></span>
-    <span>group by <select id="q-group" title="the table in sections, to tackle alike PRs together"><option value="">none</option>${Object.entries(groupings()).map(([k, g]) => `<option value="${k}"${S.gb === k ? ' selected' : ''}>${g.label}</option>`).join('')}</select></span>${sections ? `<button class="plain" id="q-fold" title="fold every group shut, or unfold them all">${sections.every(sec => shut.has(sec.name)) ? 'unfold all' : 'fold all'}</button>` : ''}
-    <span>show <select id="q-show" title="one kind of PR at a time"><option value="">all</option>${SHOWS.map(([k, l]) => `<option value="${k}"${S.sh === k ? ' selected' : ''}>${l}</option>`).join('')}</select></span>
+    <span>group by <select id="q-group" title="the table in sections, to tackle alike PRs together"><option value="">none</option>${Object.entries(groupings()).sort(byLabel(([, g]) => g.label)).map(([k, g]) => `<option value="${k}"${S.gb === k ? ' selected' : ''}>${g.label}</option>`).join('')}</select></span>${sections ? `<button class="plain" id="q-fold" title="fold every group shut, or unfold them all">${sections.every(sec => shut.has(sec.name)) ? 'unfold all' : 'fold all'}</button>` : ''}
+    <span>show <select id="q-show" title="one kind of PR at a time"><option value="">all</option>${SHOWS.slice().sort(byLabel(sh => sh[1])).map(([k, l]) => `<option value="${k}"${S.sh === k ? ' selected' : ''}>${l}</option>`).join('')}</select></span>
     <span class="picker" id="viewpick" title="ready-made queries; tick as many as apply — the query box shows the result"><button class="plain pick${on.length ? ' on' : ''}" type="button">filter <span class="dim">${on.length ? (on.length <= 2 ? on.map(f => f[0]).join(', ') : `${on[0][0]} +${on.length - 1}`) : S.q ? 'custom query' : 'none'}</span></button>
-      <div class="pop"${filterPopOpen ? '' : ' hidden'}><div class="opt reset" data-v=""><span class="sw all"></span><span class="name">none</span></div>${VIEWS.map(([l, fq]) => `<div class="opt${on.some(f => f[0] === l) ? ' on' : ''}" data-v="${esc(l)}"><span class="sw"></span><span class="name">${esc(l)}</span><span class="desc">${esc(fq.replace(/^state:open /, ''))}</span></div>`).join('')}</div></span>
+      <div class="pop"${filterPopOpen ? '' : ' hidden'}><div class="opt reset" data-v=""><span class="sw all"></span><span class="name">none</span></div>${VIEWS.slice().sort(byLabel(f => f[0])).map(([l, fq]) => `<div class="opt${on.some(f => f[0] === l) ? ' on' : ''}" data-v="${esc(l)}"><span class="sw"></span><span class="name">${esc(l)}</span><span class="desc">${esc(fq.replace(/^state:open /, ''))}</span></div>`).join('')}</div></span>
     <span class="picker" id="colpick"><button class="plain pick on" type="button">columns <span class="dim">${cols.length}</span></button>
       <div class="pop" hidden><input type="search" placeholder="filter…"><div class="opt reset"><span class="sw all"></span><span class="name">reset to the default columns</span></div><div class="rows">${Object.values(COL).map(c => `<div class="opt${shown.has(c.k) ? ' on' : ''}" data-v="${c.k}" data-name="${esc(c.l.toLowerCase())}" title="${esc(c.d)}"><span class="sw"></span><span class="name">${esc(c.l)}</span><span class="desc">${esc(c.d)}</span></div>`).join('')}</div></div></span>
     <button class="plain" id="q-open" title="open every PR in the table in a new tab — the ones in folded groups left out">open</button>
@@ -800,6 +804,7 @@ const plainText = html => { const t = document.createElement('template'); t.inne
 const EXPORT_VALUE = {
   n: p => p.n, t: p => p.t, a: p => p.a, ef: p => p.ef, d: p => p.d ? 'yes' : '', props: p => propCount(p) || '',
   tests: p => p.tc ? p.tc.s : '', tfail: p => p.tc ? p.tc.f : '', tpass: p => p.tc ? p.tc.p : '', tsince: p => testsSince(p) ?? '',
+  kd: p => p.kd || '',
   cifail: p => (p.cif || []).join(', '), behind: p => p.bh ?? '', drift: p => p.cdr ?? '',
   k: p => p.k.join(', '), sv: p => p.sv.join(', '), l: p => p.l.join(', '), rw: p => p.rw.join(', '), rb: p => p.rb.join(', '), ab: p => p.ab.join(', '),
   cb: p => p.cb.map(c => c.l).join(', '), li: p => (p.li || []).join(', '), checks: p => p.checks.map(c => c.check).join(', '),
@@ -981,7 +986,7 @@ function detail(p) {
     ${p.s === 'open' ? `<div class="row"><b>ci</b>${ciLine(p)}</div>` : ''}
     ${p.s === 'open' && HAS_TESTS ? `<div class="row"><b>tests</b>${testsLine(p)}</div>` : ''}
     <div class="row"><b>people</b>author <span class="clk" data-author="${esc(p.a)}">${esc(p.a)}</span> (${esc(p.as.toLowerCase().replace('_', ' '))}, ${esc(p.g)}) · reviewers ${p.rw.length ? p.rw.map(r => `<span class="clk" data-reviewer="${esc(r)}">${esc(r)}</span>`).join(', ') : 'none'} ${p.lastMaintBy ? '· last maintainer touch ' + esc(p.lastMaintBy) : ''}</div>
-    <div class="row"><b>change</b>+${fmtNum(p.ad)}/−${fmtNum(p.de)} over ${p.f} files · effort ${p.ef}/5 · ${p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join('')} ${p.sv.map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('')}${propCount(p) ? ` · ${p.pp.length === 1 ? 'property' : 'properties'} ${p.pp.map(n => `<span class="clk" data-q="prop:${esc(n)}">${esc(n)}</span>`).join(', ')}` : ''}</div>
+    <div class="row"><b>change</b>${p.kd ? `<span class="clk" data-q="kind:&quot;${esc(p.kd)}&quot;">${esc(p.kd)}</span> · ` : ''}+${fmtNum(p.ad)}/−${fmtNum(p.de)} over ${p.f} files · effort ${p.ef}/5 · ${p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join('')} ${p.sv.map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('')}${propCount(p) ? ` · ${p.pp.length === 1 ? 'property' : 'properties'} ${p.pp.map(n => `<span class="clk" data-q="prop:${esc(n)}">${esc(n)}</span>`).join(', ')}` : ''}</div>
     <div class="row"><b>labels</b>${p.l.length ? p.l.map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('') : 'none'} ${p.li && p.li.length ? '· closes ' + p.li.map(n => `<a href="https://github.com/${D.repo}/issues/${n}" target="_blank" rel="noopener">#${n}</a>`).join(' ') : ''} · 👍 ${p.th} · 💬 ${p.cm}</div>
     ${p.checks.length ? `<div class="row"><b>checks</b>${p.checks.map(c => `<span class="badge">${esc(c.check)}${c.score ? ' ' + c.score : ''}</span> ${c.ev.map(esc).join(' · ')}`).join('<br>')}</div>` : ''}
     <div class="row"><b>timeline</b>${p.ev.length} events</div>
@@ -1197,7 +1202,7 @@ function renderAreas(view) {
   view.innerHTML = `<div class="panels">
     <div class="panel wide"><h2>open PRs by service<span class="desc">top 30 by open count</span></h2><div class="chart" id="c-svc"></div><div class="legend"><span><i class="box" style="--c:var(--s1)"></i>mostly in the maintainers' court</span><span><i class="box" style="--c:var(--s4)"></i>mostly in the authors' court</span></div></div>
     <div class="panel wide table"><h2>services<span class="desc">from internal/services/&lt;name&gt; in the changed files · click to filter</span></h2>${table(SC, services, sk, 'asort', 80)}</div>
-    <div class="panel table"><h2>kinds of change<span class="desc">schema · code · tests · docs · examples · contributing · vendor · ci · changelog</span></h2>${table(KC.filter(c => !['authors', 'reviewers'].includes(c[0])), kinds, sk, 'asort')}</div>
+    <div class="panel table"><h2>files changed<span class="desc">schema · code · tests · docs · examples · contributing · vendor · ci · changelog</span></h2>${table(KC.filter(c => !['authors', 'reviewers'].includes(c[0])), kinds, sk, 'asort')}</div>
     <div class="panel table"><h2>labels</h2>${table(LC.filter(c => !['authors', 'reviewers', 'ttm', 'fr'].includes(c[0])), labels, sk, 'asort', 40)}</div>
     </div>`;
   const top = services.slice().sort((a, b) => b.open - a.open).slice(0, 30);
@@ -1332,7 +1337,7 @@ Design a view of prawn explore for the ask above. Context: prawn explore is a pa
 Answer with ONE json code block and nothing else, in exactly this form:
 {"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
 The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
-PRs keys: tab=prs, sort=<column key> (omitted means u, the most recently updated first), dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|tests|props|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
+PRs keys: tab=prs, sort=<column key> (omitted means u, the most recently updated first), dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|tests|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
 Trends keys: tab=trends, gran=day|week|month, cols=1|2|3, marks=major|minor|none (release markers).
 - m: the panels, separated by |. Each panel is an optional flag prefix then a comma separated list of metric keys: "s:" stacks the series as areas (only for same-unit series that add up, like the review statuses or opened-by-group), "b:" draws bars, "sb:" stacked bars, "t:" shows the panel as a table, "w:" makes the panel span the grid; flags combine ("sbw:"). A key prefixed with ! goes on the right-hand axis, with ~ it is plotted but hidden until the user clicks its legend entry (useful for a dominant series that would flatten the others); a panel may mix at most two units and the second unit is put on the right automatically.
 - Put closely related series together; 3 to 8 panels is a good view; order them from the most important down. The name should say what the view is about.
@@ -1395,7 +1400,8 @@ function boot() {
       if (!st) return;
       const who = st.by && st.by !== '-' ? ` · started by ${st.by}` : '';
       $('#rf-head').textContent = { idle: 'refresh', busy: `refreshing · ${took(st)}`, failed: 'the refresh failed', done: `refreshed in ${took(st)}` }[state];
-      $('#rf-desc').textContent = state === 'busy' ? `syncing with github and rebuilding the page${who} — the page reloads when it is done` : state === 'failed' ? (st.error || '') : state === 'done' ? `the page is rebuilt${who} — reload to see it` : '';
+      const doing = st.what === 'upload' ? 'swapping in the uploaded database and rebuilding the page' : 'syncing with github and rebuilding the page';
+      $('#rf-desc').textContent = state === 'busy' ? `${doing}${who} — the page reloads when it is done` : state === 'failed' ? (st.error || '') : state === 'done' ? `the page is rebuilt${who} — reload to see it` : '';
       $('#rf-again').hidden = state !== 'failed'; $('#rf-reload').hidden = state !== 'done';
     };
     // what the refresh printed since the last look, appended; a new run starts the log over
@@ -1433,6 +1439,49 @@ function boot() {
       $('#rf-again').addEventListener('click', () => { pre.textContent = ''; logAt = 0; start(); });
       if (st.running) { state = 'busy'; paint(st); timer = setTimeout(watch, 3000); } // someone else's refresh, already under way
     }).catch(() => {}); // a plain file server, or an older prawn: no button
+    // db, beside refresh: the server's database down to this machine, or one from this machine up in its place — how
+    // a database fetched somewhere else gets into a server without walking the whole repo again
+    const dbBox = $('#dbbox'), dbUrl = q => new URL('db' + (q || ''), location.href.split('#')[0]);
+    const mb = n => n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : `${Math.max(1, Math.round(n / (1 << 20)))} MB`;
+    let picked = null, sending = false;
+    const dbNote = t => { $('#db-note').textContent = t; };
+    // two faces: download / upload, or — a file picked — the question before it replaces anything
+    const dbAsk = file => {
+      picked = file;
+      $('#db-ok').hidden = !file; $('#db-up').hidden = $('#db-down').hidden = !!file;
+      dbNote(file ? `replace the server's database with ${file.name} (${mb(file.size)})? the one there now is kept beside it` : '');
+    };
+    fetch(dbUrl('?info')).then(r => r.ok ? r.json() : Promise.reject(new Error('no db here'))).then(() => {
+      $('#db').hidden = false;
+      $('#db').addEventListener('click', () => {
+        dbAsk(null); $('#db-desc').textContent = '';
+        dbBox.showModal();
+        fetch(dbUrl('?info')).then(r => r.json()).then(i => { $('#db-desc').textContent = i.size ? `${i.name} · ${mb(i.size)} · last written ${new Date(i.modified).toLocaleString()}` : `${i.name} · not there yet`; $('#db-down').disabled = !i.size; }).catch(() => {});
+      });
+      $('#db-close').addEventListener('click', () => { if (!sending) dbBox.close(); });
+      dbBox.addEventListener('cancel', e => { if (sending) e.preventDefault(); });
+      $('#db-down').addEventListener('click', () => {
+        const a = document.createElement('a'); a.href = dbUrl(); a.download = ''; document.body.append(a); a.click(); a.remove();
+        dbNote('copying the database — the download starts in a few seconds');
+      });
+      $('#db-up').addEventListener('click', () => { $('#db-file').value = ''; $('#db-file').click(); });
+      $('#db-file').addEventListener('change', e => { if (e.target.files[0]) dbAsk(e.target.files[0]); });
+      $('#db-ok').addEventListener('click', () => {
+        if (!picked || sending) return;
+        const x = new XMLHttpRequest(), done = msg => { sending = false; $('#db-ok').disabled = false; dbAsk(null); dbNote(msg); };
+        sending = true; $('#db-ok').disabled = true; dbNote('uploading…');
+        x.open('POST', dbUrl()); x.setRequestHeader('X-Prawn', '1');
+        x.upload.onprogress = e => { if (e.lengthComputable) dbNote(`uploading… ${Math.round(100 * e.loaded / e.total)}%`); };
+        x.upload.onload = () => dbNote('uploaded — the server is checking it…');
+        x.onerror = () => done('the upload did not get through');
+        x.onload = () => {
+          if (x.status !== 200) { done(x.responseText.trim() || `the server answered ${x.status}`); return; }
+          // it is going in: from here it is a refresh like any other, watched in the same window
+          done(''); dbBox.close(); state = 'busy'; paint(); openBox();
+        };
+        x.send(picked);
+      });
+    }).catch(() => {}); // an older prawn: no button
   }
   window.addEventListener('hashchange', () => { readHash(); update(true); });
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.tab === 'trends' || S.tab === 'services') update(); }, 150); });

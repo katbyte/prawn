@@ -73,9 +73,10 @@ func run(f *cli.FlagData) error {
 	if err := build(f, syncNever); err != nil {
 		return err
 	}
-	return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve,
+	return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve, f.DBPath,
 		func() error { return build(f, syncAlways) },
-		func() error { return build(f, syncIfStale) })
+		func() error { return build(f, syncIfStale) },
+		func() error { return build(f, syncNever) })
 }
 
 // when build syncs the database before writing the page

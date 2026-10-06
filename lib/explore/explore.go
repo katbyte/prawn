@@ -113,7 +113,8 @@ type PR struct {
 	Milestone string   `json:"ms,omitempty"`
 	Labels    []string `json:"l"`
 	Services  []string `json:"sv"`
-	Kinds     []string `json:"k"` // docs, vendor, tests, ci, schema, changelog, other
+	Kinds     []string `json:"k"`            // docs, vendor, tests, ci, schema, changelog, other
+	Change    string   `json:"kd,omitempty"` // what sort of change it is, one of KindOrder: open PRs only, as it reads the diff
 	Files     int      `json:"f"`
 	Adds      int      `json:"ad"`
 	Dels      int      `json:"de"`
@@ -191,6 +192,7 @@ type Data struct {
 	Now             int64               `json:"now"`
 	Groups          map[string][]string `json:"groups"`
 	MaintainerGroup string              `json:"maintainerGroup"`
+	KindOrder       []string            `json:"kindOrder"` // the kinds of change, in the order they are tried and listed
 	Maintainers     []string            `json:"maintainers"`
 	PartnerGroup    string              `json:"partnerGroup"`
 	Partners        []string            `json:"partners"`
@@ -269,6 +271,7 @@ func Build(in Input, cfg Config) *Data {
 	d := &Data{
 		Repo: "", GeneratedAt: now.Local().Format("2006-01-02 15:04 MST"), Now: now.Unix(),
 		Groups: cfg.Groups, MaintainerGroup: cfg.MaintainerGroup, PartnerGroup: cfg.PartnerGroup,
+		KindOrder: KindOrder,
 	}
 	for l := range maint {
 		d.Maintainers = append(d.Maintainers, l)
@@ -287,6 +290,9 @@ func Build(in Input, cfg Config) *Data {
 	for _, p := range in.PRs {
 		row := derive(p, in.Events[p.Number], in.Commits[p.Number], in.Verdicts[p.Number], in.Closes[p.Number], maint, partners, now)
 		row.Props = Properties(in.Diffs[p.Number])
+		if p.State == db.PROpen {
+			row.Change = Kind(in.Diffs[p.Number], p.Title, p.Labels, row.Kinds)
+		}
 		if c, ok := in.CI[p.Number]; ok && p.State == db.PROpen {
 			withCI(&row, &c)
 		}

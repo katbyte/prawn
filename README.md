@@ -81,7 +81,7 @@ prawn explore --serve 8765        # ...and serve it, for other machines on the n
 
 One self-contained page over every PR open at any point in the period, with a filter bar, and six tabs picked from the dropdown in the header:
 
-- **prs** — the matching PRs as a table; pick, reorder, and sort the columns, **group by** suggested category, kind, documentation type, service, court, status, ci, failing check, properties changed, author group, effort, or author to tackle alike PRs together (a group folds on a click), or **show** only one kind (approved, docs only, ci/test only, a single property, 2–4 properties); **export** the table as a csv with the columns you pick; open a row for the PR's timeline
+- **prs** — the matching PRs as a table; pick, reorder, and sort the columns, **group by** kind (1 property added, 1 resource added, api version upgrade, test fix…), suggested category, documentation type, service, court, status, ci, failing check, tests, author group, effort, or author to tackle alike PRs together (a group folds on a click), or **show** only one kind (approved, docs only, ci/test only, a single property, 2–4 properties); **export** the table as a csv with the columns you pick; open a row for the PR's timeline
 - **trends** — metrics over time: backlog, flow, review status, times, review load, and quality by author group
 - **suggested** — easy wins by category (docs only, approved but unmerged, small and unanswered, …) or by service
 - **people** — authors and reviewers
@@ -104,6 +104,11 @@ docker compose up -d   # -> http://localhost:8765/ ; the db and the page live in
 The first start of an empty `./data` walks the whole repo before the page appears. The page is open to
 anyone who can reach the port, so put a login in front of it (oauth2-proxy, Cloudflare Access) before
 exposing it beyond the local network.
+
+To skip that walk and start from a database fetched elsewhere, either copy it to `./data/prs.db` before the first start, or bring the
+container up and use the page's **db** button (top right, beside refresh): **upload** puts a database in
+the server's place and rebuilds the page from it, **download** saves the server's as `prs.<yyyymmdd>.db`.
+The uploaded file is checked first, and the one it replaces is kept as `prs.db.replaced`.
 
 ## Configuration
 

@@ -26,8 +26,9 @@ import (
 // its data embedded, so this is a file server for exactly that file, plus
 // /refresh: the page's button to sync and rebuild it. rebuild is what that
 // button runs; startup, when not nil, runs once as the first refresh as soon
-// as the page is up.
-func serve(path, addr string, rebuild, startup func() error) error {
+// as the page is up. /db hands out the database at dbPath and takes a
+// replacement, after which page rewrites the page without syncing.
+func serve(path, addr, dbPath string, rebuild, startup, page func() error) error {
 	if !strings.Contains(addr, ":") {
 		addr = ":" + addr // a bare port
 	}
@@ -48,6 +49,7 @@ func serve(path, addr string, rebuild, startup func() error) error {
 	clog.Log.SetOutput(io.MultiWriter(logOut, &rf.log))
 	defer func() { cout.Out = stdout; clog.Log.SetOutput(logOut) }()
 	mux.Handle("/refresh", rf)
+	mux.Handle("/db", &dbFile{path: dbPath, rf: rf, rebuild: page})
 	// the request log goes straight to the terminal: who loaded the page is not part of a refresh
 	srv := &http.Server{Addr: addr, Handler: logged(mux, stdout), ReadHeaderTimeout: 10 * time.Second}
 
@@ -69,7 +71,7 @@ func serve(path, addr string, rebuild, startup func() error) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	if startup != nil {
-		rf.startWith("startup", startup)
+		rf.begin("startup", "", startup, false)
 	}
 	select {
 	case err := <-errc:
@@ -100,6 +102,7 @@ type refresher struct {
 	started  time.Time
 	finished time.Time
 	by       string
+	what     string // "" for a sync and rebuild, "upload" for a database swapped in
 	err      string
 
 	log runLog // what the running refresh has printed; the last one's once it ends
@@ -113,6 +116,7 @@ type refreshStatus struct {
 	Started  string `json:"started,omitempty"`
 	Finished string `json:"finished,omitempty"`
 	By       string `json:"by,omitempty"`
+	What     string `json:"what,omitempty"`
 	Error    string `json:"error,omitempty"`
 	Log      string `json:"log,omitempty"`
 	LogEnd   int    `json:"logEnd,omitempty"`
@@ -191,17 +195,19 @@ func (rf *refresher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // start kicks off a refresh unless one is running or one finished moments ago.
-func (rf *refresher) start(by string) { rf.startWith(by, rf.run) }
+func (rf *refresher) start(by string) { rf.begin(by, "", rf.run, false) }
 
-// startWith is start running something other than the button's rebuild: the
-// sync a server does once it is up.
-func (rf *refresher) startWith(by string, run func() error) {
+// begin is start running something other than the button's rebuild — the sync
+// a server does once it is up, an uploaded database going in — and says
+// whether it started. Nothing starts while another runs; force skips the wait
+// after one has finished, for what somebody did rather than pressed.
+func (rf *refresher) begin(by, what string, run func() error, force bool) bool {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if rf.running || (!rf.finished.IsZero() && time.Since(rf.finished) < refreshGap) {
-		return
+	if rf.running || (!force && !rf.finished.IsZero() && time.Since(rf.finished) < refreshGap) {
+		return false
 	}
-	rf.running, rf.started, rf.by, rf.err = true, time.Now(), by, ""
+	rf.running, rf.started, rf.by, rf.what, rf.err = true, time.Now(), by, what, ""
 	rf.log.begin()
 	go func() {
 		err := run()
@@ -216,12 +222,13 @@ func (rf *refresher) startWith(by string, run func() error) {
 			rf.err = err.Error()
 		}
 	}()
+	return true
 }
 
 func (rf *refresher) status() refreshStatus {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	st := refreshStatus{Running: rf.running, By: rf.by, Error: rf.err}
+	st := refreshStatus{Running: rf.running, By: rf.by, What: rf.what, Error: rf.err}
 	if !rf.started.IsZero() {
 		st.Started = rf.started.UTC().Format(time.RFC3339)
 	}
@@ -244,8 +251,8 @@ func logged(next http.Handler, out io.Writer) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		if r.Method == http.MethodGet && r.URL.Path == "/refresh" {
-			return // the page polling a refresh: every few seconds, and nothing anyone did
+		if r.Method == http.MethodGet && (r.URL.Path == "/refresh" || (r.URL.Path == "/db" && r.URL.Query().Has("info"))) {
+			return // the page polling a refresh, or sizing up the database: nothing anyone did
 		}
 		_, _ = fmt.Fprint(out, cout.Sprintf("<gray>%s</> %s <cyan>%s</> %s %s %s <gray>%s %s</>\n",
 			start.Format("2006-01-02 15:04:05"), viewer(r), from(r), r.Method, r.URL.Path, statusColour(sw.status), humanSize(sw.bytes), time.Since(start).Round(time.Millisecond)))

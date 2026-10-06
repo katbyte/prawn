@@ -5,6 +5,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -318,4 +319,49 @@ func fromDBTime(s string) time.Time {
 // Now returns the current time in the storage format's precision.
 func Now() time.Time {
 	return time.Now().UTC().Truncate(time.Second)
+}
+
+// Snapshot writes a whole, consistent copy of the database to dest — a path
+// that does not exist yet, or an empty file — while others go on reading and
+// writing this one. The copy is one file, with nothing left in a journal.
+func (d *DB) Snapshot(dest string) error {
+	if _, err := d.Exec("VACUUM INTO ?", dest); err != nil {
+		return fmt.Errorf("copying the database to %s: %w", dest, err)
+	}
+	return nil
+}
+
+// Inspect looks at a file someone handed over, without changing it, and says
+// whether it can stand in as the database: sqlite, sound, written by this
+// prawn or an older one (Open brings an older one up to date). It returns how
+// many PRs it holds.
+func Inspect(path string) (int, error) {
+	sdb, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", path))
+	if err != nil {
+		return 0, fmt.Errorf("opening %s: %w", path, err)
+	}
+	defer func() { _ = sdb.Close() }()
+
+	var version int
+	if err := sdb.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return 0, fmt.Errorf("not a sqlite database: %w", err)
+	}
+	switch {
+	case version == 0:
+		return 0, errors.New("not a prawn database: it has no schema version")
+	case version > len(migrations):
+		return 0, fmt.Errorf("written by a newer prawn (schema %d, this one knows %d): update prawn first", version, len(migrations))
+	}
+	var sound string
+	if err := sdb.QueryRow("PRAGMA quick_check").Scan(&sound); err != nil {
+		return 0, fmt.Errorf("checking the file: %w", err)
+	}
+	if sound != "ok" {
+		return 0, fmt.Errorf("the file is damaged: %s", sound)
+	}
+	var prs int
+	if err := sdb.QueryRow("SELECT count(*) FROM prs").Scan(&prs); err != nil {
+		return 0, fmt.Errorf("not a prawn database: %w", err)
+	}
+	return prs, nil
 }
