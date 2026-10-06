@@ -8,6 +8,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/katbyte/go-kt/cout"
 	"github.com/katbyte/prawn/lib/db"
 	"github.com/katbyte/prawn/lib/gh"
+	"github.com/katbyte/prawn/lib/tc"
 	"github.com/katbyte/prawn/lib/text"
 )
 
@@ -50,16 +52,56 @@ const syncOverlap = 5 * time.Minute
 // pre-run sync.
 const autoFetchTTL = time.Hour
 
-// Fetch fills the local database: a resumable full walk the first time (or
-// with full), an incremental search-based sync after, and an open-set
-// reconcile either way.
+// Fetch fills the local database from both places it reads: GitHub — a
+// resumable full walk the first time (or with full), an incremental
+// search-based sync after, and an open-set reconcile either way — and then,
+// when it is configured, TeamCity's test builds.
 func (f *FlagData) Fetch(full bool) error {
 	d, err := f.OpenDB()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = d.Close() }()
+	return f.fetchAll(d, full)
+}
+
+// FetchGitHub is Fetch for GitHub alone.
+func (f *FlagData) FetchGitHub(full bool) error {
+	d, err := f.OpenDB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
 	return f.fetchInto(d, full)
+}
+
+// FetchTeamCity is Fetch for TeamCity alone: every test build it keeps with
+// full, those since the last sync without. Asked for by name, a failure is
+// the command's failure.
+func (f *FlagData) FetchTeamCity(full bool) error {
+	if !f.TC.Configured() {
+		return errors.New("teamcity is not configured: set TC_SERVER, TC_TOKEN and TC_PROJECT (or --tc-server, --tc-token, --tc-project)")
+	}
+	d, err := f.OpenDB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	return f.syncTests(d, full)
+}
+
+// fetchAll is GitHub, then TeamCity when it is configured. The tests are
+// worth having and not worth failing a fetch over: prawn works without them.
+func (f *FlagData) fetchAll(d *db.DB, full bool) error {
+	if err := f.fetchInto(d, full); err != nil {
+		return err
+	}
+	if f.TC.Configured() {
+		if err := f.syncTests(d, false); err != nil {
+			clog.Log.Warnf("teamcity test results not refreshed: %v", err)
+		}
+	}
+	return nil
 }
 
 // AutoFetch keeps a check honest: sync before scanning unless the local db is
@@ -80,9 +122,10 @@ func (f *FlagData) AutoFetch() error {
 			return nil
 		}
 	}
-	return f.fetchInto(d, false)
+	return f.fetchAll(d, false)
 }
 
+// fetchInto is the GitHub half of a fetch.
 func (f *FlagData) fetchInto(d *db.DB, full bool) error {
 	owner, name, err := f.RepoOwnerName()
 	if err != nil {
@@ -430,6 +473,7 @@ func (*FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) erro
 	if err != nil {
 		return err
 	}
+	settleMergeable(client, owner, name, open)
 
 	states, err := d.PRStates()
 	if err != nil {
@@ -469,6 +513,45 @@ func (*FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) erro
 		clog.Log.Warnf("ci detail not refreshed: %v", err)
 	}
 	return nil
+}
+
+// github works a PR's mergeability out when it is asked and answers UNKNOWN
+// until it has: after the base branch moves, the walk's first ask leaves most
+// of the open set unknown. Asking again a little later gets the real answers.
+const (
+	mergeablePasses = 4
+	mergeableWait   = 6 * time.Second
+)
+
+// settleMergeable re-asks for the PRs the walk left UNKNOWN, a few times with
+// a pause between, and writes what comes back into open. What is still
+// unknown after that stays so: a nicety, never a failed fetch.
+func settleMergeable(client *gh.Client, owner, name string, open map[int]gh.OpenPRStatus) {
+	const unknown = "UNKNOWN"
+	for pass := 1; pass <= mergeablePasses; pass++ {
+		var ask []int
+		for number, st := range open {
+			if st.Mergeable == unknown {
+				ask = append(ask, number)
+			}
+		}
+		if len(ask) == 0 {
+			return
+		}
+		slices.Sort(ask)
+		cout.Verbosef("  <gray>reconcile: mergeability of %d PRs not worked out yet — asking again (%d/%d)</>\n", len(ask), pass, mergeablePasses)
+		time.Sleep(mergeableWait)
+		got, err := client.Mergeable(owner, name, ask)
+		if err != nil {
+			clog.Log.Warnf("mergeability not settled: %v", err)
+			return
+		}
+		for number, m := range got {
+			st := open[number]
+			st.Mergeable = m
+			open[number] = st
+		}
+	}
 }
 
 // syncCI measures what stands behind each open PR's CI state: which checks
@@ -520,6 +603,77 @@ func syncCI(d *db.DB, client *gh.Client, owner, name string, open map[int]gh.Ope
 	}
 	cout.Verbosef("  <gray>reconcile: ci detail on %d open PRs — %d failing, %d measured against their base</>\n", len(cis), len(red), len(distances))
 	return nil
+}
+
+// the teamcity sync: when it last ran, how far behind that it looks again (a
+// build queued or running when last seen has since finished), and how much
+// it asks about failures — the names of up to tcFailedTestsMax tests for each
+// of up to tcFailedBuildsMax builds a run.
+const (
+	metaTCLastSync    = "tc_last_sync"
+	tcOverlap         = 3 * 24 * time.Hour
+	tcFailedTestsMax  = 40
+	tcFailedBuildsMax = 200
+)
+
+// syncTests collects the acceptance test builds TeamCity ran on pull request
+// branches — every one it still keeps the first time (or with full), those
+// since the last sync after — and then names the failed tests of each open
+// PR's latest failing builds.
+func (f *FlagData) syncTests(d *db.DB, full bool) error {
+	last, err := d.GetMeta(metaTCLastSync)
+	if err != nil {
+		return err
+	}
+	since := time.Time{}
+	if t, terr := time.Parse(time.RFC3339, last); terr == nil && !full {
+		since = t.Add(-tcOverlap)
+	}
+	if since.IsZero() {
+		cout.Printf("fetching every test build teamcity keeps for %s...\n", f.TC.Project)
+	} else {
+		cout.Printf("fetching %s's test builds since <yellow>%s</>...\n", f.TC.Project, since.Format("2006-01-02"))
+	}
+
+	start := db.Now()
+	ctx := context.Background()
+	client := tc.New(f.TC.Server, f.TC.Token)
+	builds, err := client.PRBuilds(ctx, f.TC.Project, since, func(fetched int) {
+		cout.Verbosef("  <gray>%d builds</>\n", fetched)
+	})
+	if err != nil {
+		return err
+	}
+	rows := make([]db.TCBuild, 0, len(builds))
+	for i := range builds {
+		b := &builds[i]
+		rows = append(rows, db.TCBuild{
+			ID: b.ID, PRNumber: b.PR, BuildType: b.BuildType, Branch: b.Branch, State: b.State, Status: b.Status, StatusText: b.StatusText,
+			Passed: b.Passed, Failed: b.Failed, Ignored: b.Ignored, StartedAt: b.Started, FinishedAt: b.Finished, Revision: b.Revision, URL: b.URL,
+		})
+	}
+	if err := d.SaveTCBuilds(rows); err != nil {
+		return err
+	}
+
+	wanting, err := d.TCBuildsWantingTests()
+	if err != nil {
+		return err
+	}
+	if len(wanting) > tcFailedBuildsMax {
+		wanting = wanting[:tcFailedBuildsMax] // newest first: the rest are named on later runs
+	}
+	for _, id := range wanting {
+		names, err := client.FailedTests(ctx, id, tcFailedTestsMax)
+		if err != nil {
+			return err
+		}
+		if err := d.SetTCFailedTests(id, names); err != nil {
+			return err
+		}
+	}
+	cout.Printf("  <gray>%d test builds, the failed tests of %d named</>\n", len(rows), len(wanting))
+	return d.SetMeta(metaTCLastSync, start.Format(time.RFC3339))
 }
 
 // diffMaxBytes caps a stored diff — a 30k-line API bump is noise past the

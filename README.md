@@ -75,7 +75,7 @@ An approved PR is never proposed for close, and neither is one with `--keep-reac
 export PRAWN_SINCE=2023-01-01                    # fetch also backfills every PR closed or merged since
 export PRAWN_GROUP_MEMBERS=katbyte,jackofallops   # author groups, any number of PRAWN_GROUP_<name>
 export PRAWN_GROUP_PARTNERS=magodo,wodansson
-prawn fetch
+prawn fetch                       # github, and teamcity's test builds when TC_* is set; fetch gh / fetch tc for one alone
 prawn explore                     # -> report/explore.html
 prawn explore --serve 8765        # ...and serve it, for other machines on the network; its refresh button re-fetches and rebuilds
 ```
@@ -115,6 +115,9 @@ in your home directory or the current one.
 |---|---|---|
 | `GITHUB_TOKEN` | `--token-gh` | GitHub token |
 | `PRAWN_REPO` | `--repo`, `-r` | Repository to triage (default `hashicorp/terraform-provider-azurerm`) |
+| `TC_SERVER` | `--tc-server` | TeamCity host, for each PR's acceptance test results (optional; all three or none) |
+| `TC_TOKEN` | `--tc-token` | TeamCity access token; read-only is enough |
+| `TC_PROJECT` | `--tc-project` | The TeamCity project id the test builds live under |
 | `PRAWN_DB` | `--db` | Path to the SQLite database (default `prs.db`) |
 | `PRAWN_SRC_DIR` | `--src-dir` | A local provider checkout, for `close resolved landed`, `close deprecated`, the report, and explore's release markers |
 | `PRAWN_SINCE` | `--since` | Start of the explore period, `yyyy-mm-dd`; `fetch` backfills closed and merged PRs to it |

@@ -49,7 +49,7 @@ approved action.`,
 
 	fetchCmd := &cobra.Command{
 		Use:           "fetch",
-		Short:         "fetches all open PRs (with comments, reviews, files, linked issues, timelines, and diffs) into the database",
+		Short:         "fetches all open PRs (with comments, reviews, files, linked issues, timelines, and diffs) into the database, and their test builds from teamcity when it is configured; fetch gh and fetch tc do one alone",
 		Long:          `Fetches every open pull request — title, body, all comments, reviews, changed files, labels, the issues its closing keywords reference, and its full timeline of events — via the GraphQL API into the local database, then each open PR's unified diff via REST (one call per new or updated PR, so the checks can see what a PR actually changes). The first run walks everything (resumable); later runs sync incrementally and reconcile the open set against GitHub. With --since (or PRAWN_SINCE) it also backfills every PR closed or merged since that date, timeline included, which is what prawn explore reads: the whole population of PRs that were open at any point in the period.`,
 		Aliases:       []string{"f"},
 		Args:          cobra.NoArgs,
@@ -63,6 +63,39 @@ approved action.`,
 	}
 	addFetchFlags(fetchCmd)
 	root.AddCommand(fetchCmd)
+
+	fetchGHCmd := &cobra.Command{
+		Use:           "gh",
+		Short:         "fetches from github alone: the PRs, their timelines and diffs",
+		Aliases:       []string{"github"},
+		Args:          cobra.NoArgs,
+		PreRunE:       ValidateParams([]string{ParamTokenGH, ParamRepo, "db"}),
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
+			f := GetFlags()
+			return f.FetchGitHub(f.Cmd.FetchFull)
+		},
+	}
+	addFetchFlags(fetchGHCmd)
+	fetchCmd.AddCommand(fetchGHCmd)
+
+	fetchTCCmd := &cobra.Command{
+		Use:           "tc",
+		Short:         "fetches from teamcity alone: the acceptance test builds run on pull request branches",
+		Long:          `Fetches the acceptance test builds TeamCity ran on pull request branches into the local database — every one it still keeps the first time (or with --full), those since the last sync after — and names the failed tests of each open PR's latest failing builds. Needs TC_SERVER, TC_TOKEN and TC_PROJECT (the project id the per-service build configurations live under). Read-only: prawn never starts a build.`,
+		Aliases:       []string{"teamcity"},
+		Args:          cobra.NoArgs,
+		PreRunE:       ValidateParams([]string{"db"}),
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
+			f := GetFlags()
+			return f.FetchTeamCity(f.Cmd.FetchFull)
+		},
+	}
+	fetchTCCmd.Flags().Bool("full", false, "fetch every build teamcity keeps instead of those since the last sync")
+	fetchCmd.AddCommand(fetchTCCmd)
 
 	reopenCmd := &cobra.Command{
 		Use:           "reopen #",

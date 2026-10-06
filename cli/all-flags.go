@@ -41,8 +41,9 @@ func ValidateParams(params []string) func(cmd *cobra.Command, args []string) err
 }
 
 type FlagData struct {
-	GH FlagsGitHub `mapstructure:",squash"`
-	AI FlagsAI     `mapstructure:",squash"`
+	GH FlagsGitHub   `mapstructure:",squash"`
+	TC FlagsTeamCity `mapstructure:",squash"`
+	AI FlagsAI       `mapstructure:",squash"`
 
 	Cmd   FlagsCommands   `mapstructure:",squash"`
 	Modes FlagsApplyModes `mapstructure:",squash"`
@@ -58,6 +59,19 @@ type FlagData struct {
 type FlagsGitHub struct {
 	Token string `mapstructure:"token-gh"`
 	Repo  string `mapstructure:"repo"`
+}
+
+// FlagsTeamCity is where the acceptance tests run. All three set, fetch also
+// collects each PR's test builds; any missing, prawn goes without them.
+type FlagsTeamCity struct {
+	Server  string `mapstructure:"tc-server"`  // host or url
+	Token   string `mapstructure:"tc-token"`   // an access token that can view the project
+	Project string `mapstructure:"tc-project"` // the project id the per-service builds live under
+}
+
+// Configured reports whether the TeamCity settings are all there.
+func (t FlagsTeamCity) Configured() bool {
+	return t.Server != "" && t.Token != "" && t.Project != ""
 }
 
 type FlagsAI struct {
@@ -118,6 +132,11 @@ func ConfigureFlags(root *cobra.Command) error {
 	pflags.String(ParamTokenGH, "", "github token (consider exporting to GITHUB_TOKEN instead)")
 	pflags.StringP(ParamRepo, "r", "hashicorp/terraform-provider-azurerm", "the owner/name of the repository to triage")
 
+	// TeamCity Flags (FlagsTeamCity): optional, and only read
+	pflags.String("tc-server", "", "teamcity host or url, for each PR's acceptance test results (or TC_SERVER)")
+	pflags.String("tc-token", "", "teamcity access token (consider exporting to TC_TOKEN instead)")
+	pflags.String("tc-project", "", "the teamcity project id the test builds live under (or TC_PROJECT)")
+
 	// AI Flags (FlagsAI)
 	pflags.Bool("ai", true, "use an AI CLI to judge the candidates each check finds")
 	pflags.String("ai-cmd", "", "the AI CLI binary to invoke: claude, gemini, antigravity's agy, or IBM's bob (all run as <cmd> -p) — no default, set this or PRAWN_AI_CMD")
@@ -149,6 +168,9 @@ func ConfigureFlags(root *cobra.Command) error {
 	m := map[string][]string{
 		ParamTokenGH:         {"GITHUB_TOKEN"},
 		ParamRepo:            {"PRAWN_REPO"},
+		"tc-server":          {"TC_SERVER"},
+		"tc-token":           {"TC_TOKEN"},
+		"tc-project":         {"TC_PROJECT"},
 		"ai":                 {"PRAWN_AI"},
 		"ai-cmd":             {"PRAWN_AI_CMD"},
 		"ai-model":           {"PRAWN_AI_MODEL"},
@@ -212,7 +234,7 @@ func ConfigureFlags(root *cobra.Command) error {
 	// keys — so export what the file holds, the real environment winning
 	for _, k := range viper.AllKeys() {
 		name := strings.ToUpper(k)
-		if !strings.HasPrefix(name, "PRAWN_") && name != "GITHUB_TOKEN" {
+		if !strings.HasPrefix(name, "PRAWN_") && !strings.HasPrefix(name, "TC_") && name != "GITHUB_TOKEN" {
 			continue
 		}
 		if _, set := os.LookupEnv(name); !set {

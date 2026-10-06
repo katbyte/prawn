@@ -91,6 +91,42 @@ func (c *Client) FailingChecks(owner, name string, numbers []int) (map[int][]str
 	return out, nil
 }
 
+// mergeableBatch is how many PRs one query asks the mergeability of.
+const mergeableBatch = 50
+
+// Mergeable asks GitHub for the mergeability of the PRs given: MERGEABLE,
+// CONFLICTING, or UNKNOWN while it is still being worked out. GitHub computes
+// it when asked and not before, so the first answer after the base branch
+// moves is UNKNOWN — and asking is what gets a real one the next time.
+func (c *Client) Mergeable(owner, name string, numbers []int) (map[int]string, error) {
+	out := map[int]string{}
+	for batch := range slices.Chunk(numbers, mergeableBatch) {
+		var q strings.Builder
+		q.WriteString("query($owner: String!, $name: String!) {\n  rateLimit { cost remaining resetAt }\n  repository(owner: $owner, name: $name) {\n")
+		for _, n := range batch {
+			fmt.Fprintf(&q, "    p%d: pullRequest(number: %d) { mergeable }\n", n, n)
+		}
+		q.WriteString("  }\n}")
+
+		var resp struct {
+			RateLimit  RateLimit `json:"rateLimit"`
+			Repository map[string]struct {
+				Mergeable string `json:"mergeable"`
+			} `json:"repository"`
+		}
+		if err := c.DoTolerant(q.String(), repoVars(owner, name, ""), &resp); err != nil {
+			return nil, fmt.Errorf("fetching mergeability: %w", err)
+		}
+		for _, n := range batch {
+			if m := resp.Repository[fmt.Sprintf("p%d", n)].Mergeable; m != "" {
+				out[n] = m
+			}
+		}
+		resp.RateLimit.WaitIfLow()
+	}
+	return out, nil
+}
+
 // BaseDistance is how far a PR's branch and its CI result have fallen
 // behind the branch it merges into.
 type BaseDistance struct {
