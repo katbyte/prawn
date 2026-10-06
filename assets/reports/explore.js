@@ -1425,11 +1425,12 @@ function boot() {
     const api = from => { const u = new URL('refresh', location.href.split('#')[0]); if (from != null) u.searchParams.set('from', from); return u; };
     // the button is refresh, then refreshing… while one runs (a click then opens the status window), then the page
     // reloads — or, with the window open, waits to be told to. state: idle | busy | failed | done
-    let state = 'idle', logAt = 0, timer = null;
+    let state = 'idle', logAt = 0, timer = null, mayRefresh = true;
     const took = st => { const a = Date.parse(st.started), b = st.finished ? Date.parse(st.finished) : Date.now(); const sec = Math.max(0, Math.round((b - a) / 1000)); return sec < 90 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`; };
     const paint = st => {
       btn.textContent = { idle: 'refresh', busy: 'refreshing…', failed: 'refresh failed', done: 'refreshed' }[state];
-      btn.title = { idle: 'fetch what moved on github since this page was built, rebuild it, and reload', busy: 'fetching and rebuilding — click to watch it', failed: 'the refresh failed — click for what it printed', done: 'the page is rebuilt — click to see what it printed' }[state];
+      btn.disabled = state === 'idle' && !mayRefresh; // anyone may watch one run; only an admin may start one
+      btn.title = { idle: mayRefresh ? 'fetch what moved on github since this page was built, rebuild it, and reload' : 'only an admin can refresh (PRAWN_ADMINS)', busy: 'fetching and rebuilding — click to watch it', failed: 'the refresh failed — click for what it printed', done: 'the page is rebuilt — click to see what it printed' }[state];
       if (!st) return;
       const who = st.by && st.by !== '-' ? ` · started by ${st.by}` : '';
       $('#rf-head').textContent = { idle: 'refresh', busy: `refreshing · ${took(st)}`, failed: 'the refresh failed', done: `refreshed in ${took(st)}` }[state];
@@ -1461,8 +1462,8 @@ function boot() {
     const start = () => { state = 'busy'; paint(); fetch(api(), { method: 'POST', headers: { 'X-Prawn': '1' } }).then(() => { timer = setTimeout(watch, 500); }).catch(() => { state = 'idle'; paint(); }); };
     const openBox = () => { pre.textContent = ''; logAt = 0; box.showModal(); watch(); };
     fetch(api()).then(r => r.ok ? r.json() : Promise.reject(new Error('no refresh here'))).then(st => {
-      btn.hidden = false; $('#copy-link').hidden = true;
-      btn.addEventListener('click', () => { if (state === 'idle') start(); else openBox(); });
+      btn.hidden = false; $('#copy-link').hidden = true; mayRefresh = st.admin !== false; paint();
+      btn.addEventListener('click', () => { if (state !== 'idle') openBox(); else if (mayRefresh) start(); });
       // rebuilt while it was watched: closing the window is the reload. Done here and on escape, not on the dialog's
       // close event, which a browser only delivers once the tab next paints
       const shut = () => { if (box.open) box.close(); if (state === 'done') location.reload(); };
@@ -1476,16 +1477,17 @@ function boot() {
     // a database fetched somewhere else gets into a server without walking the whole repo again
     const dbBox = $('#dbbox'), dbUrl = q => new URL('db' + (q || ''), location.href.split('#')[0]);
     const mb = n => n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : `${Math.max(1, Math.round(n / (1 << 20)))} MB`;
-    let picked = null, sending = false;
+    let picked = null, sending = false, mayUpload = true;
     const dbNote = t => { $('#db-note').textContent = t; };
     // two faces: download / upload, or — a file picked — the question before it replaces anything
     const dbAsk = file => {
       picked = file;
-      $('#db-ok').hidden = !file; $('#db-up').hidden = $('#db-down').hidden = !!file;
+      $('#db-ok').hidden = !file; $('#db-down').hidden = !!file; $('#db-up').hidden = !!file || !mayUpload;
       dbNote(file ? `replace the server's database with ${file.name} (${mb(file.size)})? the one there now is kept beside it` : '');
     };
-    fetch(dbUrl('?info')).then(r => r.ok ? r.json() : Promise.reject(new Error('no db here'))).then(() => {
+    fetch(dbUrl('?info')).then(r => r.ok ? r.json() : Promise.reject(new Error('no db here'))).then(info => {
       $('#db').hidden = false;
+      mayUpload = info.admin !== false; // only an admin may put a database in; anyone may take a copy
       $('#db').addEventListener('click', () => {
         dbAsk(null); $('#db-desc').textContent = '';
         dbBox.showModal();

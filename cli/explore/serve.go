@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,8 +28,9 @@ import (
 // /refresh: the page's button to sync and rebuild it. rebuild is what that
 // button runs; startup, when not nil, runs once as the first refresh as soon
 // as the page is up. /db hands out the database at dbPath and takes a
-// replacement, after which page rewrites the page without syncing.
-func serve(path, addr, dbPath string, rebuild, startup, page func() error) error {
+// replacement, after which page rewrites the page without syncing. Only
+// admins may refresh or replace the database; anyone may when it is empty.
+func serve(path, addr, dbPath string, admins admins, rebuild, startup, page func() error) error {
 	if !strings.Contains(addr, ":") {
 		addr = ":" + addr // a bare port
 	}
@@ -43,13 +45,13 @@ func serve(path, addr, dbPath string, rebuild, startup, page func() error) error
 	})
 	// what a build prints, and what it warns of, goes where it always did and — while a refresh
 	// runs — into that refresh's log, for the page's status window. Set once, before anything serves.
-	rf := &refresher{run: rebuild}
+	rf := &refresher{run: rebuild, admins: admins}
 	stdout, logOut := cout.Out, clog.Log.Out
 	cout.Out = io.MultiWriter(stdout, &rf.log)
 	clog.Log.SetOutput(io.MultiWriter(logOut, &rf.log))
 	defer func() { cout.Out = stdout; clog.Log.SetOutput(logOut) }()
 	mux.Handle("/refresh", rf)
-	mux.Handle("/db", &dbFile{path: dbPath, rf: rf, rebuild: page})
+	mux.Handle("/db", &dbFile{path: dbPath, rf: rf, rebuild: page, admins: admins})
 	// the request log goes straight to the terminal: who loaded the page is not part of a refresh
 	srv := &http.Server{Addr: addr, Handler: logged(mux, stdout), ReadHeaderTimeout: 10 * time.Second}
 
@@ -64,6 +66,9 @@ func serve(path, addr, dbPath string, rebuild, startup, page func() error) error
 		port = p // the real port, when 0 asked for a free one
 	}
 	cout.Printf("\nserving <cyan>%s</> — ctrl-c stops\n", path)
+	if len(admins) > 0 {
+		cout.Printf("  refresh and upload: <yellow>%s</> only, by the login the proxy in front sets\n", admins)
+	}
 	for _, h := range reachableHosts(addr) {
 		cout.Printf("  <cyan>http://%s:%s/</>\n", h, port)
 	}
@@ -95,7 +100,8 @@ const refreshGap = 30 * time.Second
 // unless one is running or only just finished, GET reports how it is going.
 // One runs at a time, whoever asked; the page polls and reloads when it ends.
 type refresher struct {
-	run func() error
+	run    func() error
+	admins admins // who may start one; anyone may watch
 
 	mu       sync.Mutex
 	running  bool
@@ -118,6 +124,7 @@ type refreshStatus struct {
 	By       string `json:"by,omitempty"`
 	What     string `json:"what,omitempty"`
 	Error    string `json:"error,omitempty"`
+	Admin    bool   `json:"admin"` // whether the one asking may start a refresh
 	Log      string `json:"log,omitempty"`
 	LogEnd   int    `json:"logEnd,omitempty"`
 }
@@ -179,6 +186,10 @@ func (rf *refresher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "refresh is the page's own button", http.StatusForbidden)
 			return
 		}
+		if !rf.admins.allow(r) {
+			http.Error(w, "only an admin may refresh (PRAWN_ADMINS)", http.StatusForbidden)
+			return
+		}
 		rf.start(viewer(r))
 	default:
 		w.Header().Set("Allow", "GET, POST")
@@ -186,6 +197,7 @@ func (rf *refresher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := rf.status()
+	st.Admin = rf.admins.allow(r)
 	if from, err := strconv.Atoi(r.URL.Query().Get("from")); err == nil {
 		st.Log, st.LogEnd = rf.log.since(from)
 	}
@@ -240,8 +252,10 @@ func (rf *refresher) status() refreshStatus {
 
 // userHeaders are where a login-aware proxy in front (traefik's github auth
 // plugins, oauth2-proxy, authelia) puts the viewer's login; the first one set
-// names the viewer in the log. They mean nothing without such a proxy — any
-// client can send them — so they are a label, never a decision.
+// names the viewer in the log, and decides who is an admin. Any client can
+// send them, so PRAWN_ADMINS means something only when that proxy is the one
+// way in (it replaces whatever the client sent) and the port is not open
+// to anyone else.
 var userHeaders = []string{"X-Forwarded-User", "X-Auth-Request-User", "X-Auth-User", "Remote-User"}
 
 // logged writes one line per request — who, from where, what, how it went —
@@ -267,6 +281,35 @@ func viewer(r *http.Request) string {
 		}
 	}
 	return "-"
+}
+
+// admins is who may change things on a served page — start a refresh, upload
+// a database — by login, as the proxy in front names the viewer. Empty lets
+// anyone: a server without a login in front has no one to tell apart.
+type admins map[string]bool
+
+// newAdmins reads a comma-separated list of logins; github's are case-blind.
+func newAdmins(list string) admins {
+	a := admins{}
+	for login := range strings.SplitSeq(list, ",") {
+		if login = strings.ToLower(strings.TrimSpace(login)); login != "" {
+			a[login] = true
+		}
+	}
+	return a
+}
+
+func (a admins) allow(r *http.Request) bool {
+	return len(a) == 0 || a[strings.ToLower(viewer(r))]
+}
+
+func (a admins) String() string {
+	logins := make([]string, 0, len(a))
+	for login := range a {
+		logins = append(logins, login)
+	}
+	slices.Sort(logins)
+	return strings.Join(logins, ", ")
 }
 
 // from is the client's address: the first hop in X-Forwarded-For when a

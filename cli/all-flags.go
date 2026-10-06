@@ -31,6 +31,9 @@ const (
 func ValidateParams(params []string) func(cmd *cobra.Command, args []string) error {
 	return func(_ *cobra.Command, _ []string) error {
 		for _, p := range params {
+			if p == ParamRepo && strings.Contains(viper.GetString(p), ",") {
+				return errors.New("GITHUB_REPOS names one repository for now: prawn does not do several yet")
+			}
 			if viper.GetString(p) != "" {
 				continue
 			}
@@ -103,6 +106,7 @@ type FlagsExplore struct {
 	Out    string `mapstructure:"explore-out"` // the html file to write
 	Checks bool   `mapstructure:"checks"`      // run the close checks for the checks tab
 	Serve  string `mapstructure:"serve"`       // "" writes and exits; a port or host:port serves the page until interrupted
+	Admins string `mapstructure:"admins"`      // also PRAWN_ADMINS: the logins that may refresh and upload a database; "" is anyone
 }
 
 // FlagsReport configures prawn close report.
@@ -167,7 +171,7 @@ func ConfigureFlags(root *cobra.Command) error {
 	// binding map for viper/pflag -> env vars (first entry wins when multiple are set)
 	m := map[string][]string{
 		ParamTokenGH:         {"GITHUB_TOKEN"},
-		ParamRepo:            {"PRAWN_REPO"},
+		ParamRepo:            {"GITHUB_REPOS"}, // plural for when there are several; one for now
 		"tc-server":          {"TC_SERVER"},
 		"tc-token":           {"TC_TOKEN"},
 		"tc-project":         {"TC_PROJECT"},
@@ -216,6 +220,10 @@ func ConfigureFlags(root *cobra.Command) error {
 	if err := viper.BindEnv("view-from", "PRAWN_VIEW_FROM"); err != nil {
 		return fmt.Errorf("error binding 'view-from' to env: %w", err)
 	}
+	// who may refresh a served page is the server's setting, kept with the rest of its env
+	if err := viper.BindEnv("admins", "PRAWN_ADMINS"); err != nil {
+		return fmt.Errorf("error binding 'admins' to env: %w", err)
+	}
 
 	viper.SetConfigName(".prawn")
 	viper.SetConfigType("env")
@@ -229,12 +237,12 @@ func ConfigureFlags(root *cobra.Command) error {
 			clog.Log.Errorf("Error reading config file: %v", err)
 		}
 	}
-	// the file is env-format and its keys are env var names (PRAWN_REPO=...),
+	// the file is env-format and its keys are env var names (GITHUB_REPOS=...),
 	// but the flags above are bound to those names as ENV vars, not as config
 	// keys — so export what the file holds, the real environment winning
 	for _, k := range viper.AllKeys() {
 		name := strings.ToUpper(k)
-		if !strings.HasPrefix(name, "PRAWN_") && !strings.HasPrefix(name, "TC_") && name != "GITHUB_TOKEN" {
+		if !strings.HasPrefix(name, "PRAWN_") && !strings.HasPrefix(name, "TC_") && name != "GITHUB_TOKEN" && name != "GITHUB_REPOS" {
 			continue
 		}
 		if _, set := os.LookupEnv(name); !set {

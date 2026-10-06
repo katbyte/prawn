@@ -33,6 +33,7 @@ header h1 select { font: inherit; font-weight: 650; background: var(--surface); 
 header .sub { color: var(--ink-2); font-size: 13px; }
 header .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 button.plain, label.plain { border: 1px solid var(--axis); background: var(--surface); color: var(--ink-2); border-radius: 6px; padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+button.plain:disabled { opacity: .45; cursor: not-allowed; }
 header .views select { font: inherit; font-size: 12px; background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px; padding: 3px 6px; max-width: 220px; }
 header .views label.plain { display: inline-block; }
 #viewctl { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }

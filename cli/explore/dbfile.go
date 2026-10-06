@@ -23,6 +23,7 @@ type dbFile struct {
 	path    string       // the database
 	rf      *refresher   // the swap runs as a refresh: one thing at a time, and the page watches it
 	rebuild func() error // writes the page from the database as it is
+	admins  admins       // who may upload; anyone may download
 }
 
 // dbInfo is what the button's window says about the database (GET ?info).
@@ -30,6 +31,7 @@ type dbInfo struct {
 	Name     string `json:"name"`
 	Size     int64  `json:"size"`
 	Modified string `json:"modified,omitempty"`
+	Admin    bool   `json:"admin"` // whether the one asking may upload
 }
 
 // uploadMax bounds an uploaded database: several times what years of a big repo come to.
@@ -39,7 +41,7 @@ func (d *dbFile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if r.URL.Query().Has("info") {
-			d.info(w)
+			d.info(w, r)
 			return
 		}
 		d.download(w, r)
@@ -49,6 +51,10 @@ func (d *dbFile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "upload is the page's own button", http.StatusForbidden)
 			return
 		}
+		if !d.admins.allow(r) {
+			http.Error(w, "only an admin may upload a database (PRAWN_ADMINS)", http.StatusForbidden)
+			return
+		}
 		d.upload(w, r)
 	default:
 		w.Header().Set("Allow", "GET, POST")
@@ -56,8 +62,8 @@ func (d *dbFile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (d *dbFile) info(w http.ResponseWriter) {
-	in := dbInfo{Name: filepath.Base(d.path)}
+func (d *dbFile) info(w http.ResponseWriter, r *http.Request) {
+	in := dbInfo{Name: filepath.Base(d.path), Admin: d.admins.allow(r)}
 	if st, err := os.Stat(d.path); err == nil {
 		in.Size, in.Modified = st.Size(), st.ModTime().UTC().Format(time.RFC3339)
 	}

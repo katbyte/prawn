@@ -101,6 +101,11 @@ func (f *FlagData) fetchAll(d *db.DB, full bool) error {
 			clog.Log.Warnf("teamcity test results not refreshed: %v", err)
 		}
 	}
+	if f.Cmd.SrcDir != "" {
+		if err := f.SyncSrcDir(); err != nil {
+			clog.Log.Warnf("provider checkout not refreshed: %v", err)
+		}
+	}
 	return nil
 }
 

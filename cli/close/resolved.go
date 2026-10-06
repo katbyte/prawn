@@ -72,6 +72,9 @@ func (f *Flags) Resolved(link string) error {
 	if link == classLanded && f.Cmd.SrcDir == "" {
 		return errors.New("the landed class scans the provider's git history: set --src-dir or PRAWN_SRC_DIR")
 	}
+	if err := f.EnsureSrcDir(); err != nil {
+		return err
+	}
 	if !f.NoAutoFetch {
 		if err := f.AutoFetch(); err != nil {
 			return err

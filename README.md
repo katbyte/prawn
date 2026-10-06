@@ -76,7 +76,7 @@ An approved PR is never proposed for close, and neither is one with `--keep-reac
 export PRAWN_SINCE=2023-01-01                    # fetch also backfills every PR closed or merged since
 export PRAWN_GROUP_MEMBERS=katbyte,jackofallops   # author groups, any number of PRAWN_GROUP_<name>
 export PRAWN_GROUP_PARTNERS=magodo,wodansson
-prawn fetch                       # github, and teamcity's test builds when TC_* is set; fetch gh / fetch tc for one alone
+prawn fetch                       # github, teamcity's test builds when TC_* is set, the provider checkout when PRAWN_SRC_DIR is; fetch gh / tc / git for one alone
 prawn explore                     # -> report/explore.html
 prawn explore --serve 8765        # ...and serve it, for other machines on the network
 ```
@@ -105,10 +105,10 @@ request is logged, naming the viewer when a login proxy in front sets `X-Forward
 ## Docker
 
 A container that keeps the explore page fresh and serves it: `prawn explore --serve` runs on start, and
-a cron job inside refreshes the page on a schedule (`EXPLORE_CRON`, set in `docker-compose.yml`).
+a cron job inside refreshes the page on a schedule (`PRAWN_FETCH_CRON`, set in `docker-compose.yml`).
 
 ```bash
-# .prawn holds GITHUB_TOKEN, PRAWN_REPO, PRAWN_SINCE, PRAWN_GROUP_<name>, TC_*... — the same file the cli reads
+# .prawn holds GITHUB_TOKEN, GITHUB_REPOS, PRAWN_SINCE, PRAWN_GROUP_<name>, TC_*... — the same file the cli reads
 docker compose pull    # ghcr.io/katbyte/prawn, published on each release; `make docker` builds it from a checkout
 docker compose up -d   # -> http://localhost:8765/ ; the db and the page live in ./data
 ```
@@ -132,12 +132,13 @@ in your home directory or the current one.
 | Variable | Flag | Description |
 |---|---|---|
 | `GITHUB_TOKEN` | `--token-gh` | GitHub token; `explore` runs without one, serving the database as it is |
-| `PRAWN_REPO` | `--repo`, `-r` | Repository to triage (default `hashicorp/terraform-provider-azurerm`) |
+| `GITHUB_REPOS` | `--repo`, `-r` | Repository to triage (default `hashicorp/terraform-provider-azurerm`); one for now |
 | `TC_SERVER` | `--tc-server` | TeamCity host, for each PR's acceptance test results (optional; all three or none) |
 | `TC_TOKEN` | `--tc-token` | TeamCity access token; read-only is enough |
 | `TC_PROJECT` | `--tc-project` | The TeamCity project id the test builds live under |
 | `PRAWN_DB` | `--db` | Path to the SQLite database (default `prs.db`) |
-| `PRAWN_SRC_DIR` | `--src-dir` | A local provider checkout, for `close resolved landed`, `close deprecated`, the report, and explore's release markers |
+| `PRAWN_SRC_DIR` | `--src-dir` | A local provider checkout, for `close resolved landed`, `close deprecated`, the report, and explore's release markers; cloned there when the path is missing or empty |
+| `PRAWN_ADMINS` | `--admins` | With `--serve`: the logins that may refresh the page and upload a database, as the login proxy in front names them (default: anyone). Only meaningful when that proxy is the only way in |
 | `PRAWN_SINCE` | `--since` | Start of the explore period, `yyyy-mm-dd`; `fetch` backfills closed and merged PRs to it |
 | `PRAWN_GROUP_<name>` | | Author groups for explore, `login,login` |
 | `PRAWN_MAINTAINERS` | | The group that counts as maintainers (default `members`) |

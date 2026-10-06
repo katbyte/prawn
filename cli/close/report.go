@@ -39,6 +39,9 @@ func (f *Flags) Report() error {
 	if f.Cmd.SrcDir == "" {
 		return errors.New("the deprecated check needs a provider checkout: set --src-dir or PRAWN_SRC_DIR")
 	}
+	if err := f.EnsureSrcDir(); err != nil {
+		return err
+	}
 	if !f.NoAutoFetch {
 		if err := f.AutoFetch(); err != nil {
 			return err

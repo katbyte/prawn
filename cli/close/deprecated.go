@@ -98,6 +98,9 @@ func (f *Flags) Deprecated(link string) error {
 	if f.Cmd.SrcDir == "" {
 		return errors.New("--src-dir is required: a local checkout of the provider supplies the upgrade guides, changelog, and deprecation markers")
 	}
+	if err := f.EnsureSrcDir(); err != nil {
+		return err
+	}
 	if !f.NoAutoFetch {
 		if err := f.AutoFetch(); err != nil {
 			return err

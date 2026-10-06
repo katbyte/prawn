@@ -59,6 +59,7 @@ checkout (--src-dir / PRAWN_SRC_DIR) and is skipped with a note without it; --wi
 	c.Flags().Bool("checks", true, "run the close checks for the checks tab (needs --src-dir)")
 	c.Flags().Bool("with-ai", false, "AI-score every check candidate, as prawn close report --with-ai does (cached verdicts are reused)")
 	c.Flags().Int("limit", 0, "cap candidates per check when scoring, for cheap test runs (0 = all)")
+	c.Flags().String("admins", "", "with --serve: the logins (comma-separated) that may refresh the page and upload a database, as the login proxy in front names them — or set PRAWN_ADMINS; empty lets anyone")
 	c.Flags().String("serve", "", "after writing, serve the page on this address until ctrl-c (a port like 8765, or host:port) so other machines on the network can open it")
 	return c
 }
@@ -79,7 +80,7 @@ func run(f *cli.FlagData) error {
 	if err := build(f, syncNever); err != nil {
 		return err
 	}
-	return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve, f.DBPath,
+	return serve(f.Cmd.Explore.Out, f.Cmd.Explore.Serve, f.DBPath, newAdmins(f.Cmd.Explore.Admins),
 		func() error { return build(f, syncAlways) },
 		func() error { return build(f, syncIfStale) },
 		func() error { return build(f, syncNever) })
@@ -190,8 +191,19 @@ func build(f *cli.FlagData, sync int) error {
 	data.ViewFrom = viewFrom(f.Cmd.ViewFrom, since, now)
 	data.Version = version.Version
 
-	if f.Cmd.SrcDir != "" {
-		if data.Releases, err = releases(f.Cmd.SrcDir, since); err != nil {
+	// the page goes up without the checkout rather than not at all: its markers and checks tab need it, nothing
+	// else. The build a server starts with does not clone (minutes, before anyone can open the page); the
+	// sync that follows it does
+	srcDir := f.Cmd.SrcDir
+	if _, err := os.Stat(filepath.Join(srcDir, ".git")); srcDir != "" && err != nil && sync == syncNever {
+		cout.Printf("  <gray>no provider checkout at %s yet: the sync after this clones it</>\n", srcDir)
+		srcDir = ""
+	} else if err := f.EnsureSrcDir(); err != nil {
+		cout.Printf("  <yellow>provider checkout skipped: %v</>\n", err)
+		srcDir = ""
+	}
+	if srcDir != "" {
+		if data.Releases, err = releases(srcDir, since); err != nil {
 			cout.Printf("  <yellow>release markers skipped: %v</>\n", err)
 		} else {
 			cout.Printf("  <gray>%d release tags since %s for the markers</>\n", len(data.Releases), data.Since)
@@ -201,7 +213,9 @@ func build(f *cli.FlagData, sync int) error {
 	switch {
 	case !f.Cmd.Explore.Checks:
 		data.ChecksNote = "the checks were not run (--checks=false)"
-	case f.Cmd.SrcDir == "":
+	case srcDir == "" && f.Cmd.SrcDir != "":
+		data.ChecksNote = "the provider checkout is not ready yet: the checks run on the next build once it is"
+	case srcDir == "":
 		data.ChecksNote = "the checks need a provider checkout: rerun with --src-dir or PRAWN_SRC_DIR set"
 	default:
 		cout.Printf("running the close checks for the checks tab...\n")

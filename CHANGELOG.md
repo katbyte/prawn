@@ -1,5 +1,9 @@
 ## Unreleased
 
+- `PRAWN_SRC_DIR` / `--src-dir`: a path that does not exist yet, or an empty directory, gets a clone of the repository on first use, as tctest does its local repo path; anything else must already be a checkout
+- `fetch git`: clones the provider checkout when missing, then fetches it (tags too) and moves it forward when it sits clean on a branch with an upstream; one on another branch, with local changes or a detached head is fetched and left where it is. `fetch` does it too, after github and teamcity, when `PRAWN_SRC_DIR` is set
+- `explore --serve`: `PRAWN_ADMINS` (`--admins`) names the logins that may refresh the page and upload a database, by the login the proxy in front sets; everyone else may watch a refresh and download, and sees refresh greyed out and no upload. Unset, anyone may, as before
+- settings renamed, the old names no longer read: `GITHUB_REPOS` for `PRAWN_REPO` (one repository for now; more is refused), and in the container `PRAWN_FETCH_CRON` for `EXPLORE_CRON` and `PRAWN_PORT` for `PORT`
 - `explore` no longer needs `GITHUB_TOKEN`: without one it builds and serves the page from the database as it is, and refresh only rebuilds it — for serving a copied database
 - `make` builds prawn again (it had been building only one lint tool), and the dev tools build on a machine with `GOFLAGS=-mod=vendor` set
 

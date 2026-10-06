@@ -49,7 +49,7 @@ approved action.`,
 
 	fetchCmd := &cobra.Command{
 		Use:           "fetch",
-		Short:         "fetches all open PRs (with comments, reviews, files, linked issues, timelines, and diffs) into the database, and their test builds from teamcity when it is configured; fetch gh and fetch tc do one alone",
+		Short:         "fetches all open PRs (with comments, reviews, files, linked issues, timelines, and diffs) into the database, their test builds from teamcity when it is configured, and the provider checkout when PRAWN_SRC_DIR is set; fetch gh, fetch tc and fetch git do one alone",
 		Long:          `Fetches every open pull request — title, body, all comments, reviews, changed files, labels, the issues its closing keywords reference, and its full timeline of events — via the GraphQL API into the local database, then each open PR's unified diff via REST (one call per new or updated PR, so the checks can see what a PR actually changes). The first run walks everything (resumable); later runs sync incrementally and reconcile the open set against GitHub. With --since (or PRAWN_SINCE) it also backfills every PR closed or merged since that date, timeline included, which is what prawn explore reads: the whole population of PRs that were open at any point in the period.`,
 		Aliases:       []string{"f"},
 		Args:          cobra.NoArgs,
@@ -96,6 +96,21 @@ approved action.`,
 	}
 	fetchTCCmd.Flags().Bool("full", false, "fetch every build teamcity keeps instead of those since the last sync")
 	fetchCmd.AddCommand(fetchTCCmd)
+
+	fetchGitCmd := &cobra.Command{
+		Use:           "git",
+		Short:         "fetches the provider checkout alone: clones it when missing, then brings it up to date",
+		Long:          `Brings the provider checkout at --src-dir (or PRAWN_SRC_DIR) up to date: a path that does not exist yet, or an empty directory, gets a clone; then it is fetched, tags included, and moved forward to its upstream when it sits clean on a branch that has one. A checkout on another branch, with local changes, or with a detached head is fetched and left where it is.`,
+		Args:          cobra.NoArgs,
+		PreRunE:       ValidateParams([]string{ParamRepo}),
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
+			return GetFlags().SyncSrcDir()
+		},
+	}
+	fetchGitCmd.Flags().String("src-dir", "", "the provider checkout to clone or update (or PRAWN_SRC_DIR)")
+	fetchCmd.AddCommand(fetchGitCmd)
 
 	reopenCmd := &cobra.Command{
 		Use:           "reopen #",

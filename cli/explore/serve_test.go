@@ -130,3 +130,56 @@ func TestRefreshLog(t *testing.T) {
 		t.Errorf("the finished run's log = %q, want it kept and nothing added after it ended", all.Log)
 	}
 }
+
+// with admins set, only they may start a refresh or upload; anyone may still watch and download
+func TestAdmins(t *testing.T) {
+	t.Parallel()
+	as := func(login string) *http.Request {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/refresh", http.NoBody)
+		r.Header.Set("X-Prawn", "1")
+		if login != "" {
+			r.Header.Set("X-Forwarded-User", login)
+		}
+		return r
+	}
+
+	if !newAdmins("").allow(as("")) {
+		t.Error("no admins set: anyone should be allowed")
+	}
+	a := newAdmins(" katbyte, MBFrahry ,")
+	for login, want := range map[string]bool{"katbyte": true, "KatByte": true, "mbfrahry": true, "someone": false, "": false} {
+		if got := a.allow(as(login)); got != want {
+			t.Errorf("allow(%q) = %v, want %v", login, got, want)
+		}
+	}
+
+	ran := make(chan struct{}, 1)
+	rf := &refresher{run: func() error { ran <- struct{}{}; return nil }, admins: a}
+	rec := httptest.NewRecorder()
+	rf.ServeHTTP(rec, as("someone"))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("refresh by someone = %d, want 403", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	rf.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/refresh", http.NoBody))
+	var st refreshStatus
+	_ = json.Unmarshal(rec.Body.Bytes(), &st)
+	if rec.Code != http.StatusOK || st.Admin {
+		t.Errorf("status for a stranger = %d %+v, want 200 and not admin", rec.Code, st)
+	}
+	rec = httptest.NewRecorder()
+	rf.ServeHTTP(rec, as("katbyte"))
+	if rec.Code != http.StatusOK {
+		t.Errorf("refresh by an admin = %d, want 200", rec.Code)
+	}
+	<-ran
+
+	d := &dbFile{path: "prs.db", rf: &refresher{}, admins: a}
+	rec = httptest.NewRecorder()
+	r := as("someone")
+	r.URL.Path = "/db"
+	d.ServeHTTP(rec, r)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("upload by someone = %d, want 403", rec.Code)
+	}
+}

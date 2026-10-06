@@ -10,9 +10,9 @@ chmod 600 /app/env.sh
 # the refresh job writes to the container log through pid 1, which is prawn once exec'd below.
 # the file lives outside /etc/cron.d, which dcron also reads: a crontab there is installed twice
 # and the job runs twice at once
-echo "${EXPLORE_CRON:-30 */3 * * *} /app/scripts/run.sh >> /proc/1/fd/1 2>&1" > /app/crontab
+echo "${PRAWN_FETCH_CRON:-30 */3 * * *} /app/scripts/run.sh >> /proc/1/fd/1 2>&1" > /app/crontab
 crontab /app/crontab
 /usr/sbin/crond -b
 
 # fetch what moved, write the page, serve it; a fresh volume first walks the whole repo, which takes a while
-exec prawn explore --serve "${PORT:-8765}"
+exec prawn explore --serve "${PRAWN_PORT:-8765}"

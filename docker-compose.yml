@@ -7,16 +7,16 @@ services:
     restart: unless-stopped
     ports:
       - "8765:8765" # the page is open to anyone who can reach this port: put a login in front of it
-    # the same env-format file the cli reads: GITHUB_TOKEN, PRAWN_REPO, PRAWN_SINCE, PRAWN_GROUP_<name>,
+    # the same env-format file the cli reads: GITHUB_TOKEN, GITHUB_REPOS, PRAWN_SINCE, PRAWN_GROUP_<name>,
     # PRAWN_MAINTAINERS...; gitignored, so the token never lands in this file
     env_file: .prawn
     environment:
       - "TZ=America/Vancouver"
-      - "EXPLORE_CRON=30 0,3,6,9,12,15,18,21 * * *" # half an hour after ghp-sync's stamps land
-      - "PORT=8765"
+      - "PRAWN_FETCH_CRON=30 0,3,6,9,12,15,18,21 * * *" # half an hour after ghp-sync's stamps land
+      - "PRAWN_PORT=8765"
     volumes:
       # prs.db and report/explore.html. to start from a database fetched elsewhere, put it here as
       # data/prs.db before the first start, or upload it with the page's db button once it is up
       - ./data:/data
-      # a provider checkout gives the release markers and the checks tab; set PRAWN_SRC_DIR=/src in .prawn
-      # - /path/to/terraform-provider-azurerm:/src:ro
+      # a provider checkout gives the release markers and the checks tab: set PRAWN_SRC_DIR=/data/src in .prawn
+      # and prawn clones the repo there on first use, or mount one you keep yourself and point it at that
