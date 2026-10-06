@@ -1,3 +1,7 @@
+## v0.1.1 (2026-10-05)
+
+- release: v0.1.0's binaries never built, because the pure-go sqlite has no solaris or 32-bit openbsd port; those two are dropped, and this is the first release with binaries and a homebrew formula (v0.1.0 published only the docker image)
+
 ## v0.1.0 (2026-10-05)
 
 Initial release.

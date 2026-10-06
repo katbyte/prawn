@@ -15,7 +15,7 @@ builds:
       - windows
       - freebsd
       - openbsd
-      - solaris
+      # no solaris, nor openbsd/386 below: the pure-go sqlite (modernc.org/sqlite) has no port to them
     goarch:
       - '386'
       - amd64
@@ -36,14 +36,8 @@ builds:
         goarch: arm
       - goos: windows
         goarch: riscv64
-      - goos: solaris
-        goarch: '386'
-      - goos: solaris
-        goarch: arm
-      - goos: solaris
-        goarch: arm64
-      - goos: solaris
-        goarch: riscv64
+      - goos: openbsd
+        goarch: '386' # nor openbsd/386
       - goos: openbsd
         goarch: arm
       - goos: freebsd
