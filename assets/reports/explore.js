@@ -460,6 +460,35 @@ function showInfo(ev, key, extra = '') {
   infoEl.style.left = Math.min(ev.clientX + 8, innerWidth - w - 8) + 'px'; infoEl.style.top = Math.min(ev.clientY + 8, innerHeight - h - 8) + 'px';
 }
 document.addEventListener('mousedown', ev => { if (!ev.target.closest('#info')) infoEl.hidden = true; });
+// a column's query key: what to type in the query box to filter by it (columns with no key have none)
+const COL_QUERY = { n: 'n', t: 'title', a: 'author', g: 'group', as: 'assoc', s: 'state', status: 'status', d: 'draft', ct: 'court', cd: 'cd', age: 'age', idle: 'idle', ef: 'effort', size: 'size', f: 'files', props: 'props', kd: 'kind', k: 'touches', sv: 'svc', l: 'label', ms: 'milestone', rr: 'rounds', rv: 'reviews', ap: 'approvals', rc: 'reviewcomments', mrv: 'memberreviews', mrc: 'memberreviewcomments', cm: 'comments', th: 'thumbs', rw: 'reviewer', rb: 'reviewedby', ab: 'approvedby', cb: 'changesby', fr: 'fr', fw: 'responder', lm: 'lastmaint', wd: 'waiting', rd: 'decision', mg: 'mergeable', ci: 'ci', ciage: 'ciage', cifor: 'failingfor', cifail: 'failing', behind: 'behind', behindfor: 'behindfor', drift: 'drift', tests: 'tests', tfail: 'testsfailed', testage: 'testage', tsince: 'testsince', slash: 'slashtest', mb: 'mergedby', aiMax: 'ai', checks: 'check',
+  gn: 'n', gtitle: 'title', guser: 'author', gstate: 'state', gmergedby: 'mergedby', greviews: 'reviews', greviewcomments: 'reviewcomments', gcomments: 'comments', greviewers: 'reviewedby', glabels: 'label' };
+// right-click a header: its query key, and its commonest values (or the comparisons, for a number) to add to the query
+function showColKey(ev, colKey) {
+  const c = COL[colKey]; if (!c) return; ev.preventDefault();
+  const k = COL_QUERY[colKey];
+  let body = `<div class="desc">no query key for this column — sort by it, or export it</div>`;
+  if (k) {
+    const kv = keyValues(k), q = v => /\s/.test(v) ? `"${v}"` : v;
+    const picks = kv.numeric ? [`${k}>`, `${k}<`, `${k}=`].map(x => [x, '']) : kv.values.slice(0, 8).map(([v, n]) => [`${k}:${q(v)}`, `${fmtNum(n)} PRs`]);
+    body = `<div class="key">query key <code>${esc(k)}</code>${kv.numeric ? ' · a number: compare with >, < or =' : ''}</div>
+      <div class="desc">${kv.numeric ? 'start a comparison in the query box:' : 'its commonest values — click one to add it to the query:'}</div>
+      <div class="chips">${picks.map(([t, n]) => `<span class="badge clk" data-addq="${esc(t)}" title="${kv.numeric ? 'put it in the query box to finish' : 'add it to the query'}">${esc(t)}${n ? ` <span class="dim">${n}</span>` : ''}</span>`).join('')}</div>`;
+  }
+  infoEl.innerHTML = `<div class="hd">${esc(c.l || '(blank)')}</div><div class="desc">${esc(c.d || '')}</div>${body}`;
+  infoEl.hidden = false;
+  const w = infoEl.offsetWidth, h = infoEl.offsetHeight;
+  infoEl.style.left = Math.min(ev.clientX + 8, innerWidth - w - 8) + 'px'; infoEl.style.top = Math.min(ev.clientY + 8, innerHeight - h - 8) + 'px';
+}
+// a value picked in the popup joins the query: a whole term applies at once, a comparison waits in the box to be finished
+infoEl.addEventListener('click', ev => {
+  const a = ev.target.closest('[data-addq]'); if (!a) return;
+  const t = a.dataset.addq, q = (S.q || '').trim(); infoEl.hidden = true;
+  if (/[<>=]$/.test(t)) { const box = $('#f-q'); if (box) { box.value = (q ? q + ' ' : '') + t; box.focus(); box.setSelectionRange(box.value.length, box.value.length); } return; }
+  set('q', (q ? q + ' ' : '') + t);
+});
+// right-click on any column header of the prs and data tables
+document.addEventListener('contextmenu', ev => { const th = ev.target.closest('#view th[data-sort]'); if (th && COL[th.dataset.sort]) showColKey(ev, th.dataset.sort); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape') infoEl.hidden = true; });
 
 // ---- the chart menu: ask an AI what happened over a range (or at a point), or narrow the page to it ----
