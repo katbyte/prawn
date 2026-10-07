@@ -1,4 +1,4 @@
-## Unreleased
+## v0.7.0 (2026-10-07)
 
 - a sync now fetches any PR open on github that it does not have — github's search lags, so one opened moments before a sync could be missed for good
 - the header says when the data last synced with github, amber after six hours, red when the server cannot sync (no token)
