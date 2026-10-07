@@ -1,3 +1,12 @@
+## Unreleased
+
+- a sync now fetches any PR open on github that it does not have — github's search lags, so one opened moments before a sync could be missed for good
+- the header says when the data last synced with github, amber after six hours, red when the server cannot sync (no token)
+- selecting a range (or right-clicking a point) on a chart shows each series' values at both ends, the change, and its low and high
+- a `/test` that started nothing says so, with the workflow's reason (no tests found, merge conflicts, too many services); `slashtest:notrun`
+- **resources** and **data sources** columns: what each PR changes, from its code, tests and docs; `resource`, `datasource`, `resources`, `datasources` and `services` query keys
+- the scheduled refresh shows on the page as refreshing, as the button's does, and reloads open pages when it ends
+
 ## v0.6.0 (2026-10-07)
 
 - right-click a column header for its query key and its commonest values, a click away from the query

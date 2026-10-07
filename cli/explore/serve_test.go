@@ -174,6 +174,17 @@ func TestAdmins(t *testing.T) {
 	}
 	<-ran
 
+	// the machine itself (the container's scheduled refresh) is let in; a proxy passing a request on is not
+	cron := as("cron")
+	cron.RemoteAddr = "127.0.0.1:5000"
+	if !a.allow(cron) {
+		t.Error("a request from the machine itself: refused, want it let in")
+	}
+	cron.Header.Set("X-Forwarded-For", "203.0.113.9")
+	if a.allow(cron) {
+		t.Error("a proxied request from loopback: let in, want it refused")
+	}
+
 	d := &dbFile{path: "prs.db", rf: &refresher{}, admins: a}
 	rec = httptest.NewRecorder()
 	r := as("someone")

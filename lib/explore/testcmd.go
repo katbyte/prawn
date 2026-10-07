@@ -16,7 +16,9 @@ type TestRun struct {
 	At       int64       `json:"at,omitempty"`
 	URL      string      `json:"u,omitempty"`
 	Services []string    `json:"sv,omitempty"`
-	Since    *int        `json:"cs,omitempty"` // commits pushed since the /test, when the PR's commits are known
+	Since    *int        `json:"cs,omitempty"`   // commits pushed since the /test, when the PR's commits are known
+	Failed   string      `json:"fail,omitempty"` // why it started nothing, in the workflow's words, when it said so
+	FailURL  string      `json:"fu,omitempty"`
 	Result   *TestResult `json:"r,omitempty"`
 }
 
@@ -58,6 +60,10 @@ func testRun(comments []db.Comment, commits []db.Commit) *TestRun {
 			}
 		case strings.Contains(body, testResultsMarker):
 			res = testResult(c)
+		case strings.HasPrefix(body, "❌") && run != nil:
+			// the workflow's word that the latest /test started nothing: its first line, the ❌ off
+			run.Failed = strings.TrimSpace(strings.TrimPrefix(strings.SplitN(body, "\n", 2)[0], "❌"))
+			run.FailURL = c.URL
 		}
 	}
 	if run == nil && res == nil {

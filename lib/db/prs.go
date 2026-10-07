@@ -513,11 +513,14 @@ func boolToInt(b bool) int {
 }
 
 // TestComments returns, by PR, the comments of the /test flow, oldest first:
-// the /test commands (which the bot edits to list the builds it started) and
-// the bot's results (marked <!-- teamcity-test-results -->).
+// the /test commands (which the bot edits to list the builds it started), the
+// bot's results (marked <!-- teamcity-test-results -->), and the workflow's
+// word when a /test started nothing (❌ ...).
 func (d *DB) TestComments() (map[int][]Comment, error) {
 	rows, err := d.Query(`SELECT id, pr_number, author, author_association, created_at, body, url FROM comments
-		WHERE body LIKE '/test%' OR body LIKE '%<!-- teamcity-test-results -->%' ORDER BY created_at ASC`)
+		WHERE body LIKE '/test%' OR body LIKE '%<!-- teamcity-test-results -->%'
+			OR (author = 'github-actions' AND body LIKE '❌%' AND (body LIKE '%TeamCity%' OR body LIKE '%trigger builds%'))
+		ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("querying /test comments: %w", err)
 	}

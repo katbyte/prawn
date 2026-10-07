@@ -4,7 +4,10 @@
 package gh
 
 import (
+	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -443,4 +446,37 @@ func (c *Client) ClosedPRCount(owner, name string, from, to time.Time) (int, err
 		return 0, fmt.Errorf("counting closed PRs: %w", err)
 	}
 	return resp.Search.IssueCount, nil
+}
+
+// prsByNumberBatch is how many whole PRs one request asks for: each carries its
+// comments, reviews, files and first timeline page, so a few at a time.
+const prsByNumberBatch = 5
+
+// PRsByNumber fetches whole PRs by number, as a sync's search page would
+// return them — for PRs open on GitHub that a sync's search never returned
+// (its index lags: a PR opened moments before a sync can be missing from it).
+// A number GitHub does not answer for is left out.
+func (c *Client) PRsByNumber(owner, name string, numbers []int) ([]PRNode, error) {
+	var out []PRNode
+	for batch := range slices.Chunk(numbers, prsByNumberBatch) {
+		var q strings.Builder
+		q.WriteString("query($owner: String!, $name: String!) {\n  rateLimit { cost remaining resetAt }\n  repository(owner: $owner, name: $name) {\n")
+		for _, n := range batch {
+			fmt.Fprintf(&q, "    p%d: pullRequest(number: %d) {%s}\n", n, n, prFields)
+		}
+		q.WriteString("  }\n}")
+		var resp struct {
+			Repository map[string]json.RawMessage `json:"repository"`
+		}
+		if err := c.DoTolerant(q.String(), repoVars(owner, name, ""), &resp); err != nil {
+			return nil, fmt.Errorf("fetching PRs %v: %w", batch, err)
+		}
+		for _, n := range batch {
+			var node PRNode
+			if raw, ok := resp.Repository[fmt.Sprintf("p%d", n)]; ok && json.Unmarshal(raw, &node) == nil && node.Number != 0 {
+				out = append(out, node)
+			}
+		}
+	}
+	return out, nil
 }

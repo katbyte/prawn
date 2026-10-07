@@ -194,6 +194,10 @@ func build(f *cli.FlagData, sync int) error {
 	data.Since = since.Format("2006-01-02")
 	data.ViewFrom = viewFrom(f.Cmd.ViewFrom, since, now)
 	data.Version = version.Version
+	if t, serr := cli.LastSync(d); serr == nil && !t.IsZero() {
+		data.Synced = t.Unix()
+	}
+	data.NoSync = f.NoAutoFetch
 
 	// the page goes up without the checkout rather than not at all: its markers and checks tab need it, nothing
 	// else. The build a server starts with does not clone (minutes, before anyone can open the page); the

@@ -484,6 +484,29 @@ func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) er
 	if err != nil {
 		return err
 	}
+	// open on github, but missing here or closed here: a PR the sync's search never returned (its index lags, so
+	// one opened moments before a sync can miss it, and the next sync looks only after that), or one reopened.
+	// Fetched whole, so it is open here too and gets its timeline and diff below
+	var missing []int
+	for number := range open {
+		if states[number] != db.PROpen {
+			missing = append(missing, number)
+		}
+	}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		cout.Printf("  <gray>reconcile: </><yellow>%d</><gray> PRs open on github are missing or closed here — fetching them</>\n", len(missing))
+		nodes, ferr := client.PRsByNumber(owner, name, missing)
+		if ferr != nil {
+			return ferr
+		}
+		if err := d.SavePRs(bundles(nodes), "", ""); err != nil {
+			return err
+		}
+		if states, err = d.PRStates(); err != nil {
+			return err
+		}
+	}
 	var gone []int
 	statuses := make(map[int]db.PRStatus, len(open))
 	for number, state := range states {
@@ -984,4 +1007,14 @@ func ParseNumber(arg string) (int, error) {
 		return 0, fmt.Errorf("PR number %q is not a number: %w", arg, err)
 	}
 	return number, nil
+}
+
+// LastSync is when the database last synced with github, zero when it never has.
+func LastSync(d *db.DB) (time.Time, error) {
+	v, err := d.GetMeta(metaLastSync)
+	if err != nil || v == "" {
+		return time.Time{}, err
+	}
+	t, _ := time.Parse(time.RFC3339, v)
+	return t, nil
 }

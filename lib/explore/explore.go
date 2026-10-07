@@ -113,8 +113,10 @@ type PR struct {
 	Milestone string   `json:"ms,omitempty"`
 	Labels    []string `json:"l"`
 	Services  []string `json:"sv"`
-	Kinds     []string `json:"k"`            // docs, vendor, tests, ci, schema, changelog, other
-	Change    string   `json:"kd,omitempty"` // what sort of change it is, one of KindOrder: open PRs only, as it reads the diff
+	Resources []string `json:"rsc,omitempty"` // the resources it changes (code, tests or docs), azurerm_ names
+	DataSrcs  []string `json:"dsc,omitempty"` // the data sources it changes
+	Kinds     []string `json:"k"`             // docs, vendor, tests, ci, schema, changelog, other
+	Change    string   `json:"kd,omitempty"`  // what sort of change it is, one of KindOrder: open PRs only, as it reads the diff
 	Files     int      `json:"f"`
 	Adds      int      `json:"ad"`
 	Dels      int      `json:"de"`
@@ -215,7 +217,9 @@ type CheckClass struct {
 type Data struct {
 	Repo            string              `json:"repo"`
 	GeneratedAt     string              `json:"generated"`
-	Version         string              `json:"version"` // the prawn that wrote the page
+	Synced          int64               `json:"synced,omitempty"` // when the database last synced with github (unix), 0 when never
+	NoSync          bool                `json:"nosync,omitempty"` // the server cannot sync: no github token, or told not to
+	Version         string              `json:"version"`          // the prawn that wrote the page
 	Since           string              `json:"since"`
 	ViewFrom        string              `json:"viewFrom"` // the period the page opens on, yyyy-mm-dd
 	Now             int64               `json:"now"`
@@ -402,6 +406,7 @@ func derive(p *db.PR, events []db.Event, commits []db.Commit, verdicts map[strin
 		row.ResolveDays = days(p.CreatedAt, end)
 	}
 	row.Services, row.Kinds = areas(p.Files)
+	row.Resources, row.DataSrcs = affected(p.Files)
 	for _, c := range closes {
 		row.LinkedIssues = append(row.LinkedIssues, c.IssueNumber)
 	}

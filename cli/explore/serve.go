@@ -300,7 +300,21 @@ func newAdmins(list string) admins {
 }
 
 func (a admins) allow(r *http.Request) bool {
-	return len(a) == 0 || a[strings.ToLower(viewer(r))]
+	return len(a) == 0 || a[strings.ToLower(viewer(r))] || local(r)
+}
+
+// local is a request from the machine itself, not passed on by a proxy: the container's scheduled
+// refresh. A login proxy in front reaches prawn from elsewhere, and says whom for (X-Forwarded-For)
+func local(r *http.Request) bool {
+	if r.Header.Get("X-Forwarded-For") != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (a admins) String() string {

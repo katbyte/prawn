@@ -1,6 +1,7 @@
 package explore
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -28,6 +29,14 @@ func TestTestRun(t *testing.T) {
 	res := r.Result
 	if res == nil || res.URL != "r2" || res.Build != 769918 || res.Total != 125 || res.Passed != 120 || res.Failed != 4 || res.Skipped != 1 || !res.NewFail {
 		t.Errorf("the latest result = %+v, want build 769918: 125, 120 passed, 4 failed, 1 skipped, newly failed", res)
+	}
+	// a /test that started nothing: the workflow's reason, on the run it answers
+	failed := testRun(slices.Concat(comments, []db.Comment{
+		{Author: "Vieran", CreatedAt: at(6), URL: "u3", Body: "/test"},
+		{Author: "github-actions", CreatedAt: at(7), URL: "f3", Body: "❌ No TeamCity builds were triggered — no acceptance tests could be discovered.\n\nSee the logs."},
+	}), nil)
+	if failed.By != "Vieran" || failed.FailURL != "f3" || failed.Failed != "No TeamCity builds were triggered — no acceptance tests could be discovered." {
+		t.Errorf("a /test that started nothing = %+v, want Vieran's with the workflow's reason", failed)
 	}
 	if testRun(nil, nil) != nil {
 		t.Error("no comments: want nil")

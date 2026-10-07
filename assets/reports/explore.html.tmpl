@@ -39,6 +39,11 @@ header h1 a.home { color: inherit; text-decoration: none; }
 .person-head .tile.who .v { color: var(--s1); }
 .person-info { order: 2; width: 100%; } .person-info .tiles { margin-bottom: 12px; }
 .panel .chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
+#ctx .ctxvals { border-collapse: collapse; font-size: 12px; margin: 6px 0 8px; width: 100%; }
+#ctx .ctxvals th { font-weight: 500; color: var(--muted); font-size: 11px; padding: 2px 6px; text-align: left; }
+#ctx .ctxvals td { padding: 2px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
+#ctx .ctxvals th.num, #ctx .ctxvals td.num { text-align: right; font-variant-numeric: tabular-nums; }
+#ctx .ctxvals .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); margin-right: 6px; }
 #info .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-width: 360px; }
 #info .key code { font-size: 12px; }
 .seg.plist { flex-wrap: wrap; margin-bottom: 10px; }

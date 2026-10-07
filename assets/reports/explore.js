@@ -77,7 +77,7 @@ const KEYS = {
   effort: p => p.ef, e: p => p.ef, age: p => p.age, idle: p => p.idle, size: p => p.size, files: p => p.f, rounds: p => p.rr,
   tests: p => p.tc ? p.tc.s : 'none', testsfailed: p => p.tc ? p.tc.f : null, testage: p => testAge(p), testsince: p => testsSince(p), failedtest: p => p.tc && p.tc.ft ? p.tc.ft : [], tested: p => p.tc ? p.tc.b.map(b => b.sv) : [],
   ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], slashtest: p => slashState(p), slashage: p => slashAge(p), ciok: p => p.ci === 'passing' || (p.ci === 'failing' && (p.cif || []).length > 0 && p.cif.every(c => c === 'changelog')) ? 'yes' : 'no', onlyfailing: p => { const f = [...new Set(p.cif || [])]; return f.length === 1 ? f[0] : f.length ? 'several' : null; }, behind: p => p.bh ?? null, behindfor: p => behindFor(p), ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
-  props: p => (p.pp || []).length, prop: p => p.pp || [], // how many schema properties the diff touches, and which
+  props: p => (p.pp || []).length, prop: p => p.pp || [], resource: p => p.rsc || [], datasource: p => p.dsc || [], resources: p => (p.rsc || []).length, datasources: p => (p.dsc || []).length, services: p => p.sv.length, // how many schema properties the diff touches, and which
   fr: p => p.fr < 0 ? null : p.fr, reviewer: p => p.rw, r: p => p.rw, n: p => p.n, title: p => p.tl, t: p => p.tl,
   draft: p => p.d ? 'yes' : 'no', approved: p => p.approved ? 'yes' : 'no', decision: p => p.rd || 'none', rd: p => p.rd || 'none', milestone: p => p.ms || '', ms: p => p.ms || '',
   mergeable: p => p.mg, mg: p => p.mg, cd: p => p.cd, waiting: p => p.wd, wd: p => p.wd, thumbs: p => p.th, comments: p => p.cm,
@@ -240,7 +240,7 @@ function renderFilters() {
   syncDraft();
   $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh', 'sort', 'dir']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR, the most recently updated first
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
-    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok slashtest slashage behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>onlyfailing</code> the check when it is the only one failing, <code>ciok</code> yes when ci passes or fails only on the changelog, <code>slashtest</code> the latest /test's results (passing, failing, pending, none) and <code>slashage</code> the days since it was asked, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
+    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop resource resources datasource datasources services rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok slashtest slashage behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>onlyfailing</code> the check when it is the only one failing, <code>ciok</code> yes when ci passes or fails only on the changelog, <code>slashtest</code> the latest /test's results (passing, failing, pending, notrun, none) and <code>slashage</code> the days since it was asked, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
 }
 
@@ -461,7 +461,7 @@ function showInfo(ev, key, extra = '') {
 }
 document.addEventListener('mousedown', ev => { if (!ev.target.closest('#info')) infoEl.hidden = true; });
 // a column's query key: what to type in the query box to filter by it (columns with no key have none)
-const COL_QUERY = { n: 'n', t: 'title', a: 'author', g: 'group', as: 'assoc', s: 'state', status: 'status', d: 'draft', ct: 'court', cd: 'cd', age: 'age', idle: 'idle', ef: 'effort', size: 'size', f: 'files', props: 'props', kd: 'kind', k: 'touches', sv: 'svc', l: 'label', ms: 'milestone', rr: 'rounds', rv: 'reviews', ap: 'approvals', rc: 'reviewcomments', mrv: 'memberreviews', mrc: 'memberreviewcomments', cm: 'comments', th: 'thumbs', rw: 'reviewer', rb: 'reviewedby', ab: 'approvedby', cb: 'changesby', fr: 'fr', fw: 'responder', lm: 'lastmaint', wd: 'waiting', rd: 'decision', mg: 'mergeable', ci: 'ci', ciage: 'ciage', cifor: 'failingfor', cifail: 'failing', behind: 'behind', behindfor: 'behindfor', drift: 'drift', tests: 'tests', tfail: 'testsfailed', testage: 'testage', tsince: 'testsince', slash: 'slashtest', mb: 'mergedby', aiMax: 'ai', checks: 'check',
+const COL_QUERY = { n: 'n', t: 'title', a: 'author', g: 'group', as: 'assoc', s: 'state', status: 'status', d: 'draft', ct: 'court', cd: 'cd', age: 'age', idle: 'idle', ef: 'effort', size: 'size', f: 'files', props: 'props', kd: 'kind', k: 'touches', sv: 'svc', l: 'label', ms: 'milestone', rsc: 'resource', dsc: 'datasource', rr: 'rounds', rv: 'reviews', ap: 'approvals', rc: 'reviewcomments', mrv: 'memberreviews', mrc: 'memberreviewcomments', cm: 'comments', th: 'thumbs', rw: 'reviewer', rb: 'reviewedby', ab: 'approvedby', cb: 'changesby', fr: 'fr', fw: 'responder', lm: 'lastmaint', wd: 'waiting', rd: 'decision', mg: 'mergeable', ci: 'ci', ciage: 'ciage', cifor: 'failingfor', cifail: 'failing', behind: 'behind', behindfor: 'behindfor', drift: 'drift', tests: 'tests', tfail: 'testsfailed', testage: 'testage', tsince: 'testsince', slash: 'slashtest', mb: 'mergedby', aiMax: 'ai', checks: 'check',
   gn: 'n', gtitle: 'title', guser: 'author', gstate: 'state', gmergedby: 'mergedby', greviews: 'reviews', greviewcomments: 'reviewcomments', gcomments: 'comments', greviewers: 'reviewedby', glabels: 'label' };
 // right-click a header: its query key, and its commonest values (or the comparisons, for a number) to add to the query
 function showColKey(ev, colKey) {
@@ -506,9 +506,19 @@ ${point ? `The point ${chart.label(t[b])} against the previous one, ${chart.labe
 ${lines.join('\n')}
 ${point ? 'What explains the change at this point?' : 'What explains how these series moved over this range, and what should the maintainers do about it?'} Groups: ${GROUP_NAMES.join(', ')}; maintainers are the ${D.maintainerGroup} group. A PR is in the maintainers' court when it awaits a first look, a re-look after the author pushed, or a merge; in the author's when it is a draft, labelled waiting-response, or has changes requested and nothing pushed since.`;
 }
+// each series at the start and the end of the range (or the point and the one before), the change, and over a range
+// its low and high: what the selection shows, before asking anyone about it
+function rangeTable(chart, a, b, point) {
+  const rows = chart.series.filter(sr => !sr.hidden).map(sr => {
+    const f = sr.right ? chart.rfmt : chart.fmt, va = sr.values[a], vb = sr.values[b], vals = sr.values.slice(a, b + 1).filter(v => v != null);
+    return `<tr><td><i class="dot" style="--c:${sr.color}"></i>${esc(sr.label)}</td><td class="num">${va == null ? '—' : f(va)}</td><td class="num">${vb == null ? '—' : f(vb)}</td><td class="num">${fmtDelta(vb, va, f)}</td>${point ? '' : `<td class="num dim">${vals.length ? `${f(Math.min(...vals))} – ${f(Math.max(...vals))}` : '—'}</td>`}</tr>`;
+  });
+  return rows.length ? `<table class="ctxvals"><thead><tr><th></th><th class="num">${esc(chart.label(chart.times[a]))}</th><th class="num">${esc(chart.label(chart.times[b]))}</th><th class="num">change</th>${point ? '' : '<th class="num">low – high</th>'}</tr></thead><tbody>${rows.join('')}</tbody></table>` : '';
+}
 function showCtx(ev, chart, a, b, point) {
   const t = chart.times;
   ctxEl.innerHTML = `<div class="hd">${point ? chart.label(t[b]) : `${chart.label(t[a])} → ${chart.label(t[b])}`}<span class="dim"> · ${point ? 'this point vs the previous' : Math.round((t[b] - t[a]) / DAY) + ' days'}</span></div>
+    ${rangeTable(chart, a, b, point)}
     <input id="ctxAsk" placeholder="your question (optional)" autocomplete="off">
     <div class="row">ask ${AI_TARGETS.map(x => `<button class="plain" data-ai="${x.id}">${x.label}</button>`).join('')}<button class="plain" data-ai="copy">copy prompt</button></div>
     <div class="row">${point ? '' : `<button class="plain" data-act="zoom">narrow the page to this range</button>`}<button class="plain" data-act="close">close</button></div>`;
@@ -585,6 +595,10 @@ col('f', 'files', 'files changed', p => fmtNum(p.f), p => p.f, { cls: 'num', hi:
 col('props', 'props', 'schema properties the diff adds or changes on existing resources — read from the diff (schema keys, model tags, docs bullets), open PRs only', p => (p.pp || []).length ? `<span title="${esc(p.pp.join(', '))}">${p.pp.length}</span>` : '', p => (p.pp || []).length, { cls: 'num', hi: true });
 col('kd', 'kind', 'what sort of change it is, read from the diff: the first that fits of resources added, data sources added, api version upgrade, properties added or changed, test fix, documentation… — open PRs only', p => p.kd ? `<span class="clk" data-q="kind:&quot;${esc(p.kd)}&quot;">${esc(p.kd)}</span>` : '', p => p.kd ? KIND_ORDER.indexOf(p.kd) : 999);
 col('k', 'file types', 'the kinds of file it changes', p => p.k.map(k => `<span class="badge clk" data-kind="${k}">${k}</span>`).join(''), p => p.k[0] || LAST);
+// resources and data sources: the first two named, then how many more
+const someNames = (xs, key) => !xs || !xs.length ? '' : xs.slice(0, 2).map(x => `<span class="clk" data-q="${key}:${esc(x)}">${esc(x.replace(/^azurerm_/, ''))}</span>`).join(', ') + (xs.length > 2 ? ` <span class="dim">+${xs.length - 2}</span>` : '');
+col('rsc', 'resources', 'the resources it changes — code, tests or docs', p => someNames(p.rsc, 'resource'), p => (p.rsc || []).length, { hi: true });
+col('dsc', 'data sources', 'the data sources it changes — code, tests or docs', p => someNames(p.dsc, 'datasource'), p => (p.dsc || []).length, { hi: true });
 col('sv', 'services', 'the services touched (internal/services/<name>)', p => p.sv.slice(0, 3).map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('') + (p.sv.length > 3 ? `<span class="badge">+${p.sv.length - 3}</span>` : ''), p => p.sv[0] || LAST);
 col('l', 'labels', 'the labels', p => p.l.slice(0, 4).map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('') + (p.l.length > 4 ? `<span class="badge">+${p.l.length - 4}</span>` : ''), p => p.l[0] || LAST);
 col('ms', 'milestone', 'the milestone', p => esc(p.ms || ''), p => p.ms || LAST);
@@ -635,7 +649,7 @@ col('tfail', 'tests failed', 'how many tests failed in those builds', p => p.tc 
 col('tpass', 'tests passed', 'how many tests passed in those builds', p => p.tc ? fmtNum(p.tc.p) : '', p => p.tc ? p.tc.p : -1, { cls: 'num', hi: true });
 col('testage', 'test age', 'how long ago the tests last ran', p => testAge(p) == null ? '' : fmtDays(testAge(p)), p => testAge(p) ?? -1, { cls: 'num', hi: true });
 col('tsince', 'since tests', 'commits pushed to the PR since its tests began: what they have not seen', p => testsSince(p) == null ? '' : fmtNum(testsSince(p)), p => testsSince(p) ?? -1, { cls: 'num', hi: true });
-col('slash', '/test', "the latest /test on it — the bot's results (failed and passed) and how long ago it was asked; pending until the results are posted", p => { const st = slashState(p), r = p.ts && p.ts.r; if (st === 'none') return ''; const age = slashAge(p) == null ? '' : ` <span class="dim">${fmtDays(slashAge(p))}</span>`; return st === 'pending' ? `<span class="mid">pending</span>${age}` : `<span class="${st === 'failing' ? 'bad' : 'ok'}">${st === 'failing' ? fmtNum(r.f) + ' failed' : fmtNum(r.p) + ' passed'}</span>${age}`; }, p => slashAge(p) ?? 1e9);
+col('slash', '/test', "the latest /test on it — the bot's results (failed and passed) and how long ago it was asked; pending until the results are posted", p => { const st = slashState(p), r = p.ts && p.ts.r; if (st === 'none') return ''; const age = slashAge(p) == null ? '' : ` <span class="dim">${fmtDays(slashAge(p))}</span>`; return st === 'notrun' ? `<span class="bad" title="${esc(p.ts.fail)}">started nothing</span>${age}` : st === 'pending' ? `<span class="mid">pending</span>${age}` : `<span class="${st === 'failing' ? 'bad' : 'ok'}">${st === 'failing' ? fmtNum(r.f) + ' failed' : fmtNum(r.p) + ' passed'}</span>${age}`; }, p => slashAge(p) ?? 1e9);
 col('mb', 'merged by', 'who merged it', p => p.mb ? `<span class="clk" data-q="mergedby:${esc(p.mb)}">${esc(p.mb)}</span>` : '', p => p.mb || LAST);
 col('c', 'created', 'when it opened', p => fmtDate(p.c), p => p.c, { cls: 'num', hi: true });
 col('u', 'updated', 'when github last saw it change: a push, a comment, a review, a label', p => fmtDate(p.u), p => p.u, { cls: 'num', hi: true });
@@ -887,7 +901,7 @@ const EXPORT_VALUE = {
   tests: p => p.tc ? p.tc.s : '', tfail: p => p.tc ? p.tc.f : '', tpass: p => p.tc ? p.tc.p : '', tsince: p => testsSince(p) ?? '',
   kd: p => p.kd || '',
   cifail: p => (p.cif || []).join(', '), behind: p => p.bh ?? '', behindfor: p => behindFor(p) == null ? '' : Math.round(behindFor(p)), drift: p => p.cdr ?? '',
-  k: p => p.k.join(', '), sv: p => p.sv.join(', '), l: p => p.l.join(', '), rw: p => p.rw.join(', '), rb: p => p.rb.join(', '), ab: p => p.ab.join(', '),
+  k: p => p.k.join(', '), sv: p => p.sv.join(', '), rsc: p => (p.rsc || []).join(', '), dsc: p => (p.dsc || []).join(', '), l: p => p.l.join(', '), rw: p => p.rw.join(', '), rb: p => p.rb.join(', '), ab: p => p.ab.join(', '),
   cb: p => p.cb.map(c => c.l).join(', '), li: p => (p.li || []).join(', '), checks: p => p.checks.map(c => c.check).join(', '),
 };
 // columns only an export has: nothing a table cell would show
@@ -1065,7 +1079,7 @@ function ciCard(p) {
   return card('ci', v, CI_CLASS[p.ci] || 'dim', why || ran, drift);
 }
 // the /test on a PR: its state from the bot's latest results — failing, passing, or waiting on results still to come
-const slashState = p => { const ts = p.ts; if (!ts) return 'none'; const r = ts.r; if (!r || (ts.at && r.at < ts.at)) return ts.at ? 'pending' : 'none'; return r.f ? 'failing' : 'passing'; };
+const slashState = p => { const ts = p.ts; if (!ts) return 'none'; const r = ts.r; if (!r || (ts.at && r.at < ts.at)) return ts.fail ? 'notrun' : ts.at ? 'pending' : 'none'; return r.f ? 'failing' : 'passing'; };
 const slashAge = p => p.ts && p.ts.at ? (NOW - p.ts.at) / DAY : null;
 // two lines for the tests card: who asked for /test and when, and what the bot's results said (both linked)
 function slashLines(p) {
@@ -1073,13 +1087,14 @@ function slashLines(p) {
   const out = [];
   if (ts.at) out.push(`<a href="${esc(ts.u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">/test</a> by @${esc(ts.by)} ${fmtDays(slashAge(p))} ago${ts.sv && ts.sv.length ? ` · ${esc(ts.sv.join(', '))}` : ''}${ts.cs ? ` · <span class="mid">${commits(ts.cs)} since</span>` : ''}`);
   const r = ts.r;
-  if (slashState(p) === 'pending') out.push('<span class="mid">results not posted yet</span>');
+  if (slashState(p) === 'notrun') out.push(`<a class="bad" href="${esc(ts.fu)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">started nothing</a>: <span class="dim">${esc(ts.fail)}</span>`);
+  else if (slashState(p) === 'pending') out.push('<span class="mid">results not posted yet</span>');
   else if (r) out.push(`<a href="${esc(r.u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">results</a>: ${r.f ? `<span class="bad">${fmtNum(r.f)} failed${r.nf ? ' (new)' : ''}</span> · ` : ''}${fmtNum(r.p)} passed${r.s ? ` · ${fmtNum(r.s)} skipped` : ''} <span class="dim">${fmtDays((NOW - r.at) / DAY)} ago${r.d ? ` · ${esc(r.d)}` : ''}</span>`);
   return out;
 }
 function testsCard(p) {
   const t = p.tc, slash = slashLines(p);
-  if (!t) return slash.length ? card('tests', slashState(p), TC_CLASS[slashState(p)] || 'mid', ...slash) : card('tests', 'never run', 'dim', 'no teamcity build');
+  if (!t) return slash.length ? card('tests', slashState(p) === 'notrun' ? 'not run' : slashState(p), slashState(p) === 'notrun' ? 'bad' : TC_CLASS[slashState(p)] || 'mid', ...slash) : card('tests', 'never run', 'dim', 'no teamcity build');
   const counts = t.f ? `<span class="bad">${fmtNum(t.f)} failed</span> · ${fmtNum(t.p)} passed` : `${fmtNum(t.p)} passed`;
   const since = t.cs ? `<span class="mid">${commits(t.cs)} pushed since</span>` : t.cs === 0 ? 'nothing pushed since' : '';
   // the counts sit beside the state, small: the state reads first, the numbers right after it
@@ -1636,7 +1651,12 @@ function update(rerenderFilters) {
   // a view is the whole state but the tab — the filter every tab shares, the prs tab's columns and sort, the trends tab's layouts — so its controls show on every tab
   if (vc) { $('#tabctl').appendChild(vc); vc.hidden = false; }
   if ($('#viewSel').innerHTML) renderViews();
-  $('#subtitle').textContent = `${fmtNum(D.prs.length)} PRs open at some point since ${D.since} · ${fmtNum(D.prs.filter(p => p.s === 'open').length)} open now · generated ${D.generated} by prawn ${D.version || 'dev'}`;
+  // when the data was last synced with github: the page's age that matters, flagged once it is over six hours old,
+  // or when the server cannot sync at all (no token) and every refresh only rebuilds the page
+  const syncAge = D.synced ? (Date.now() / 1000 - D.synced) / DAY : null, stale = syncAge == null || syncAge > 0.25;
+  const synced = D.nosync ? '<span class="bad" title="the server has no github token (or was told not to fetch): refresh rebuilds the page from the database as it is">not syncing with github</span>'
+    : `<span class="${stale ? 'mid' : ''}" title="${D.synced ? 'synced ' + new Date(D.synced * 1000).toLocaleString() : 'never synced'}">${syncAge == null ? 'never synced' : `synced ${syncAge < 1 / 24 ? Math.max(1, Math.round(syncAge * 1440)) + 'm' : syncAge < 1 ? Math.round(syncAge * 24) + 'h' : fmtDays(syncAge)} ago`}</span>`;
+  $('#subtitle').innerHTML = `${fmtNum(D.prs.length)} PRs open at some point since ${esc(D.since)} · ${fmtNum(D.prs.filter(p => p.s === 'open').length)} open as of the sync · ${synced} · generated ${esc(D.generated)} by prawn ${esc(D.version || 'dev')}`;
 }
 // ---- saved views: the whole url state under a name, in this browser; save to file and upload move them (tfpp's layouts) ----
 const VIEW_KEY = 'prawn.views';
