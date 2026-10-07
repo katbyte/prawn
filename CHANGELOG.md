@@ -1,3 +1,10 @@
+## Unreleased
+
+- a **person** view: pick anyone, then **info** (their numbers and who they work with), **trends** (their work over time, picked like the trends tab) and **data** (every PR they opened, reviewed, approved, commented on, merged or closed)
+- names on the people tab open the person view, and its numbers open the matching list
+- a **ci passing (except changelog)** filter: passing, or failing only for the missing changelog entry
+- the query box suggests keys as you type, then the values the data has for them
+
 ## v0.5.0 (2026-10-07)
 
 - the 🦐 prawn title links to prawn on github

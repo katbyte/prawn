@@ -53,10 +53,10 @@ for (const c of (D.checks || [])) { const p = BY_N.get(c.n); if (p) p.checks.pus
 for (const p of D.prs) p.checkNames = p.checks.map(c => c.check).join(',');
 
 // ---- state: everything the url hash carries ----
-const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sort2: '', sg: '', mo: '', pd: '', yr: '', ddc: '', cf: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
+const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sort2: '', who: '', pv: '', pm: '', pl: '', sg: '', mo: '', pd: '', yr: '', ddc: '', cf: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
 const S = { ...DEFAULTS };
 // the state filter's default depends on the tab: open PRs everywhere, every state on trends — until it is set explicitly
-const stateFilter = () => S.st ?? (S.tab === 'trends' || S.tab === 'data' ? '' : 'open');
+const stateFilter = () => S.st ?? (S.tab === 'trends' || S.tab === 'data' || S.tab === 'person' ? '' : 'open');
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   for (const k in DEFAULTS) S[k] = h.has(k) ? h.get(k) : DEFAULTS[k];
@@ -76,7 +76,7 @@ const KEYS = {
   kind: p => p.kd || (p.s === 'open' ? 'other' : null), touches: p => p.k, k: p => p.k, only: p => p.k.length === 1 ? p.k[0] : 'mixed', label: p => p.l, l: p => p.l, court: p => p.ct, c: p => p.ct, state: p => p.s, st: p => p.s,
   effort: p => p.ef, e: p => p.ef, age: p => p.age, idle: p => p.idle, size: p => p.size, files: p => p.f, rounds: p => p.rr,
   tests: p => p.tc ? p.tc.s : 'none', testsfailed: p => p.tc ? p.tc.f : null, testage: p => testAge(p), testsince: p => testsSince(p), failedtest: p => p.tc && p.tc.ft ? p.tc.ft : [], tested: p => p.tc ? p.tc.b.map(b => b.sv) : [],
-  ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], onlyfailing: p => { const f = [...new Set(p.cif || [])]; return f.length === 1 ? f[0] : f.length ? 'several' : null; }, behind: p => p.bh ?? null, behindfor: p => behindFor(p), ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
+  ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], ciok: p => p.ci === 'passing' || (p.ci === 'failing' && (p.cif || []).length > 0 && p.cif.every(c => c === 'changelog')) ? 'yes' : 'no', onlyfailing: p => { const f = [...new Set(p.cif || [])]; return f.length === 1 ? f[0] : f.length ? 'several' : null; }, behind: p => p.bh ?? null, behindfor: p => behindFor(p), ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
   props: p => (p.pp || []).length, prop: p => p.pp || [], // how many schema properties the diff touches, and which
   fr: p => p.fr < 0 ? null : p.fr, reviewer: p => p.rw, r: p => p.rw, n: p => p.n, title: p => p.tl, t: p => p.tl,
   draft: p => p.d ? 'yes' : 'no', approved: p => p.approved ? 'yes' : 'no', decision: p => p.rd || 'none', rd: p => p.rd || 'none', milestone: p => p.ms || '', ms: p => p.ms || '',
@@ -88,6 +88,49 @@ const KEYS = {
   memberreviews: p => p.mrv, mrv: p => p.mrv, memberreviewcomments: p => p.mrc, mrc: p => p.mrc, membercomments: p => p.mcm, mcm: p => p.mcm,
   suggested: p => p.s === 'open' ? CATEGORIES.filter(c => c[2](p)).map(c => c[4]) : [], // the suggested tab's categories the PR falls in
 };
+// ---- autocomplete for the query box: a key as it is typed, then the values the data has for it ----
+const SHORT_KEYS = new Set(['n', 'ai', 'cd', 'fr', 'ci']); // the short keys worth offering; the rest are aliases of longer ones
+let KEY_VALUES = {};
+// what a key's values look like: the distinct ones by how many PRs have them, or "a number"
+function keyValues(k) {
+  if (KEY_VALUES[k]) return KEY_VALUES[k];
+  const n = new Map(); let nums = 0;
+  for (const p of D.prs) { let v; try { v = KEYS[k](p); } catch (e) { continue; } for (const x of Array.isArray(v) ? v : [v]) { if (x == null || x === '') continue; if (typeof x === 'number') { nums++; continue; } const t = String(x).toLowerCase(); n.set(t, (n.get(t) || 0) + 1); } }
+  return (KEY_VALUES[k] = { numeric: nums > n.size, values: [...n].sort((a, b) => b[1] - a[1]) });
+}
+function bindQueryComplete(input) {
+  const box = document.createElement('div'); box.className = 'qcomplete'; box.hidden = true; input.after(box);
+  let items = [], at = -1;
+  // the token the caret is in: its start, an optional -, the key, the operator, and the value being typed (after the last comma)
+  // a word ends at a space outside quotes, so kind:"1 property is one word still being typed
+  const token = () => { const v = input.value, end = input.selectionStart ?? v.length; let start = 0, q = false; for (let i = 0; i < end; i++) { if (v[i] === '"') q = !q; else if (!q && /\s/.test(v[i])) start = i + 1; } const t = v.slice(start, end); const m = t.match(/^(-?)([a-z_]*)(:|>=|<=|>|<|=)?(.*)$/i); return { start, end, t, neg: m[1], key: m[2].toLowerCase(), op: m[3] || '', val: m[3] ? m[4] : '' }; };
+  const close = () => { box.hidden = true; items = []; at = -1; };
+  const draw = () => { box.innerHTML = items.map((it, i) => `<div class="qc${i === at ? ' on' : ''}" data-i="${i}"><b>${esc(it.label)}</b><span class="dim">${esc(it.hint || '')}</span></div>`).join(''); box.hidden = !items.length; };
+  const suggest = () => {
+    const tk = token();
+    if (!tk.op) { // a key being typed
+      if (!tk.key) { close(); return; }
+      items = Object.keys(KEYS).filter(k => (k.length > 2 || SHORT_KEYS.has(k)) && k.startsWith(tk.key) && k !== tk.key).slice(0, 12)
+        .map(k => { const kv = keyValues(k); return { insert: tk.neg + k + (kv.numeric ? '>' : ':'), label: k, hint: kv.numeric ? 'a number: >, <, =' : kv.values.slice(0, 3).map(x => x[0]).join(', '), again: true }; });
+    } else if (KEYS[tk.key]) { // a value being typed
+      const kv = keyValues(tk.key), part = tk.val.split(',').pop().replace(/"/g, '').toLowerCase(), before = tk.val.slice(0, tk.val.length - tk.val.split(',').pop().length);
+      if (kv.numeric) { close(); return; }
+      items = kv.values.filter(([v]) => v.includes(part) && v !== part).slice(0, 12)
+        .map(([v, n]) => ({ insert: tk.neg + tk.key + tk.op + before + (/\s/.test(v) ? `"${v}"` : v) + ' ', label: v, hint: `${fmtNum(n)} PRs` }));
+    } else { close(); return; }
+    at = items.length ? 0 : -1; draw();
+  };
+  const accept = i => { const it = items[i], tk = token(); if (!it) return; const v = input.value; input.value = v.slice(0, tk.start) + it.insert + v.slice(tk.end); const c = tk.start + it.insert.length; input.setSelectionRange(c, c); input.focus(); if (it.again) suggest(); else close(); };
+  input.addEventListener('input', suggest);
+  input.addEventListener('keydown', e => {
+    if (box.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); at = (at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; draw(); }
+    else if ((e.key === 'Tab' || e.key === 'Enter') && at >= 0) { e.preventDefault(); e.stopPropagation(); accept(at); }
+    else if (e.key === 'Escape') close();
+  });
+  box.addEventListener('mousedown', e => { const r = e.target.closest('.qc'); if (r) { e.preventDefault(); accept(+r.dataset.i); } });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+}
 function parseQuery(q) {
   const terms = [];
   for (const tok of (q || '').match(/(?:[^\s"]+|"[^"]*")+/g) || []) {
@@ -181,7 +224,7 @@ function renderFilters() {
     `;
   const bind = (id, key, ev = 'change') => $(id).addEventListener(ev, e => set(key, e.target.value));
   const bindIf = (id, key) => { if ($(id)) bind(id, key); };
-  bindIf('#f-from', 'from'); bindIf('#f-to', 'to'); bindIf('#f-mo', 'mo'); bindIf('#f-yr', 'yr'); bind('#f-g', 'g'); bind('#f-ct', 'ct'); bind('#f-q', 'q');
+  bindIf('#f-from', 'from'); bindIf('#f-to', 'to'); bindIf('#f-mo', 'mo'); bindIf('#f-yr', 'yr'); bind('#f-g', 'g'); bind('#f-ct', 'ct'); bind('#f-q', 'q'); bindQueryComplete($('#f-q'));
   // a month, a year, or from/to: each has other inputs, so the bar is drawn again
   if ($('#f-pd')) $('#f-pd').addEventListener('change', e => { S.pd = e.target.value; update(true); });
   bindPickers();
@@ -197,7 +240,7 @@ function renderFilters() {
   syncDraft();
   $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh', 'sort', 'dir']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR, the most recently updated first
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
-    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>onlyfailing</code> the check when it is the only one failing, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
+    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>onlyfailing</code> the check when it is the only one failing, <code>ciok</code> yes when ci passes or fails only on the changelog, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
 }
 
@@ -250,12 +293,12 @@ function bindPickers() {
 }
 
 // ---- tabs ----
-const TABS = [['prs', 'prs'], ['trends', 'trends'], ['suggested', 'suggested'], ['services', 'services'], ['people', 'people'], ['checks', 'checks'], ['data', 'data']];
+const TABS = [['prs', 'prs'], ['trends', 'trends'], ['suggested', 'suggested'], ['services', 'services'], ['people', 'people'], ['checks', 'checks'], ['data', 'data'], ['person', 'person']];
 function renderTabs() {
   const counts = { prs: queueRows().length, // the prs tab's show, and a grouping that drops PRs, narrow its table: so its count too
-    trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: checkSections(false).reduce((n, sec) => n + sec.prs.length, 0), data: monthRows().length };
+    trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: checkSections(false).reduce((n, sec) => n + sec.prs.length, 0), data: monthRows().length, person: 0 };
   // the tab is the header's dropdown, where the page's name was; the controls row keeps the tab's own controls
-  $('#tabSel').innerHTML = TABS.map(([id, label]) => `<option value="${id}"${S.tab === id ? ' selected' : ''}>${label} · ${fmtNum(counts[id])}</option>`).join('');
+  $('#tabSel').innerHTML = TABS.map(([id, label]) => `<option value="${id}"${S.tab === id ? ' selected' : ''}>${label} · ${id === 'person' ? esc(S.who || 'pick someone') : fmtNum(counts[id])}</option>`).join('');
   $('#controls').innerHTML = `<span id="tabctl" style="display:contents"></span>`;
 }
 $('#tabSel').addEventListener('change', e => set('tab', e.target.value));
@@ -629,6 +672,7 @@ const VIEWS = [
   ['ci failing', 'state:open ci:failing'],
   ['ci passing', 'state:open ci:passing'],
   ['ci (no changelog)', 'state:open ci:failing onlyfailing:changelog'],
+  ['ci passing (except changelog)', 'state:open ciok:yes'],
   ['ci needs approval', 'state:open ci:approval'],
   ['ci not run', 'state:open ci:none'],
   ['ci expired', 'state:open ci:expired'],
@@ -973,6 +1017,7 @@ function bindRowClicks(view) {
   if (view.rowsBound) return; view.rowsBound = true;
   view.addEventListener('click', e => {
     const tl = e.target.closest('[data-timeline]'); if (tl) { e.stopPropagation(); openTimeline(tl.dataset.timeline); return; }
+    const per = e.target.closest('[data-person]'); if (per) { e.stopPropagation(); S.who = per.dataset.person; if (per.dataset.pl) { S.pv = 'data'; S.pl = per.dataset.pl; if (S.st == null) S.st = stateFilter(); } set('tab', 'person'); return; }
     const clk = e.target.closest('.clk');
     if (clk) { e.stopPropagation(); if (clk.dataset.author) set('a', clk.dataset.author); else if (clk.dataset.svc) set('svc', clk.dataset.svc); else if (clk.dataset.label) set('l', clk.dataset.label); else if (clk.dataset.reviewer) set('q', 'reviewer:' + clk.dataset.reviewer); else if (clk.dataset.group) set('g', clk.dataset.group); else if (clk.dataset.kind) set('k', clk.dataset.kind); else if (clk.dataset.q != null) { S.q = clk.dataset.q; set('tab', 'prs'); } return; }
     const tr = e.target.closest('tr.pr'); if (!tr) return;
@@ -1182,11 +1227,11 @@ function renderPeople(view) {
       inCourt: ps.filter(p => p.s === 'open' && p.ct === 'author').length, spark: monthlyCounts(ps, months), last: Math.max(...ps.map(p => p.c)) };
   });
   const ACOLS = [
-    ['login', 'author', '', a => a.login, a => `<span class="clk" data-author="${esc(a.login)}">${esc(a.login)}</span> <span class="badge g clk" data-group="${esc(a.g)}" style="--gc:${groupColor(a.g)}">${esc(a.g)}</span>`],
-    ['n', 'PRs', 'num', a => a.n, a => fmtNum(a.n)],
-    ['open', 'open', 'num', a => a.open, a => fmtNum(a.open)],
-    ['merged', 'merged', 'num', a => a.merged, a => fmtNum(a.merged)],
-    ['closed', 'closed', 'num', a => a.closed, a => fmtNum(a.closed)],
+    ['login', 'author', '', a => a.login, a => `<span class="clk" data-person="${esc(a.login)}" title="open their person view">${esc(a.login)}</span> <span class="badge g clk" data-group="${esc(a.g)}" style="--gc:${groupColor(a.g)}">${esc(a.g)}</span>`],
+    ['n', 'PRs', 'num', a => a.n, a => toList(a.login, 'opened', a.n)],
+    ['open', 'open', 'num', a => a.open, a => toList(a.login, 'open', a.open)],
+    ['merged', 'merged', 'num', a => a.merged, a => toList(a.login, 'merged', a.merged)],
+    ['closed', 'closed', 'num', a => a.closed, a => toList(a.login, 'closed', a.closed)],
     ['rate', 'merge rate', 'num', a => a.rate, a => a.rate == null ? '—' : Math.round(a.rate * 100) + '% ' + trendArrow(a.recent, a.prior)],
     ['ttm', 'to merge', 'num', a => a.ttm, a => fmtDays(a.ttm)],
     ['rounds', 'rounds', 'num', a => a.rounds, a => a.rounds == null ? '—' : fmtNum(a.rounds, 1)],
@@ -1215,15 +1260,15 @@ function renderPeople(view) {
   }
   const reviewers = [...byR.values()].map(r => ({ ...r, n: r.prs.size, fr: median(r.frDays), lastTouch: M.filter(p => p.s === 'open' && p.lastMaintBy.toLowerCase() === r.login.toLowerCase()).length }));
   const RCOLS = [
-    ['login', 'reviewer', '', r => r.login, r => `<span class="clk" data-reviewer="${esc(r.login)}">${esc(r.login)}</span>`],
-    ['n', 'PRs touched', 'num', r => r.n, r => fmtNum(r.n)],
-    ['reviews', 'reviews', 'num', r => r.reviews, r => fmtNum(r.reviews)],
-    ['approvals', 'approved', 'num', r => r.approvals, r => fmtNum(r.approvals)],
-    ['changes', 'changes req.', 'num', r => r.changes, r => fmtNum(r.changes)],
-    ['comments', 'comments', 'num', r => r.comments, r => fmtNum(r.comments)],
-    ['merges', 'merged', 'num', r => r.merges, r => fmtNum(r.merges)],
-    ['closes', 'closed', 'num', r => r.closes, r => fmtNum(r.closes)],
-    ['first', 'first responder', 'num', r => r.first, r => fmtNum(r.first)],
+    ['login', 'reviewer', '', r => r.login, r => `<span class="clk" data-person="${esc(r.login)}" title="open their person view">${esc(r.login)}</span>`],
+    ['n', 'PRs touched', 'num', r => r.n, r => toList(r.login, 'touched', r.n)],
+    ['reviews', 'reviews', 'num', r => r.reviews, r => toList(r.login, 'reviewed', r.reviews)],
+    ['approvals', 'approved', 'num', r => r.approvals, r => toList(r.login, 'approved', r.approvals)],
+    ['changes', 'changes req.', 'num', r => r.changes, r => toList(r.login, 'changes', r.changes)],
+    ['comments', 'comments', 'num', r => r.comments, r => toList(r.login, 'commented', r.comments)],
+    ['merges', 'merged', 'num', r => r.merges, r => toList(r.login, 'mergedfor', r.merges)],
+    ['closes', 'closed', 'num', r => r.closes, r => toList(r.login, 'closedfor', r.closes)],
+    ['first', 'first responder', 'num', r => r.first, r => toList(r.login, 'first', r.first)],
     ['fr', 'response', 'num', r => r.fr, r => fmtDays(r.fr)],
     ['lastTouch', 'last touch, open', 'num', r => r.lastTouch, r => r.lastTouch || '—'],
     ['recent', 'last 6mo', 'num', r => r.recent, r => fmtNum(r.recent)],
@@ -1365,6 +1410,109 @@ function renderData(view) {
   });
 }
 
+// a number on the people tab that opens that person's data on the list behind it
+const toList = (login, list, v, text = fmtNum(v)) => v ? `<span class="clk" data-person="${esc(login)}" data-pl="${list}" title="see them">${text}</span>` : text;
+// ---- the person view: one login's contributions — a picker, then info, trends and data sub-tabs ----
+// the PRs the filter bar matches, as every tab: so a count clicked on the people tab opens on the same PRs (every
+// state by default here, as on trends — unless the state is set, which a click from the people tab carries over)
+const personSet = () => M;
+// everyone who opened, reviewed or commented on a PR, busiest first, for the picker
+let PEOPLE = null;
+const people = () => PEOPLE || (PEOPLE = (() => { const n = new Map(), name = new Map(); const bump = w => { if (!w || isBot(w)) return; const l = w.toLowerCase(); n.set(l, (n.get(l) || 0) + 1); if (!name.has(l)) name.set(l, w); };
+  for (const p of D.prs) { bump(p.a); for (const e of p.ev) if (e.k === 'review' || e.k === 'comment' || e.k === 'merge') bump(e.w); }
+  return [...n].sort((a, b) => b[1] - a[1]).map(([l]) => name.get(l)); })());
+// what a login did across a set: their PRs, and every review, comment, merge, close and label they left, by PR
+function personWork(ps, who) {
+  const w = who.toLowerCase(), mine = ps.filter(p => p.lo === w), acts = [];
+  for (const p of ps) for (const e of p.ev) if ((e.w || '').toLowerCase() === w) acts.push({ p, e, own: p.lo === w });
+  return { w, mine, acts, on: (test, own = false) => acts.filter(a => a.own === own && test(a.e)) };
+}
+const PERSON_LISTS = [
+  ['opened', 'PRs they opened', W => W.mine.map(p => ({ p, at: p.c }))],
+  ['merged', 'their PRs merged', W => W.mine.filter(p => p.s === 'merged').map(p => ({ p, at: p.m }))],
+  ['open', 'their PRs still open', W => W.mine.filter(p => p.s === 'open').map(p => ({ p, at: p.u }))],
+  ['closed', 'their PRs closed unmerged', W => W.mine.filter(p => p.s === 'closed').map(p => ({ p, at: p.x }))],
+  ['touched', 'other people\'s PRs they touched', W => byPR(W.on(e => ['review', 'comment', 'merge', 'close', 'label+'].includes(e.k)))],
+  ['reviewed', 'PRs they reviewed', W => byPR(W.on(e => e.k === 'review'))],
+  ['approved', 'PRs they approved', W => byPR(W.on(e => e.k === 'review' && e.x === 'approved'))],
+  ['changes', 'PRs they requested changes on', W => byPR(W.on(e => e.k === 'review' && e.x === 'changes_requested'))],
+  ['commented', 'PRs they commented on', W => byPR(W.on(e => e.k === 'comment'))],
+  ['mergedfor', 'other people\'s PRs they merged', W => byPR(W.on(e => e.k === 'merge'))],
+  ['closedfor', 'other people\'s PRs they closed', W => byPR(W.on(e => e.k === 'close'))],
+  ['first', 'PRs they answered first', W => personSet().filter(p => (p.fw || '').toLowerCase() === W.w).map(p => ({ p, at: p.c + p.fr * DAY }))],
+];
+// actions grouped by PR: the latest of them, and how many
+function byPR(acts) { const m = new Map(); for (const a of acts) { const r = m.get(a.p.n) || { p: a.p, at: 0, n: 0 }; r.at = Math.max(r.at, a.e.t); r.n++; m.set(a.p.n, r); } return [...m.values()]; }
+// the n most frequent of a list, as "name ×count"
+const topOf = (xs, n = 5) => { const c = new Map(); for (const x of xs) c.set(x, (c.get(x) || 0) + 1); return [...c].sort((a, b) => b[1] - a[1]).slice(0, n); };
+function renderPerson(view) {
+  const list = people(), who = S.who;
+  const head = `<span class="pick-person">person <input id="p-who" list="p-people" value="${esc(who)}" placeholder="a github login…" autocomplete="off"><datalist id="p-people">${list.slice(0, 1500).map(l => `<option value="${esc(l)}">`).join('')}</datalist></span>
+    <span class="seg" id="p-view">${[['', 'info'], ['trends', 'trends'], ['data', 'data']].map(([v, l]) => `<button data-v="${v}" class="${S.pv === v ? 'on' : ''}">${l}</button>`).join('')}</span>${who ? ` <a class="plain" href="https://github.com/${esc(who)}" target="_blank" rel="noopener">github ↗</a>` : ''}`;
+  const bindHead = () => {
+    $('#p-who').addEventListener('change', e => { S.who = e.target.value.trim(); set('pv', S.pv); });
+    $('#p-view').addEventListener('click', e => { const b = e.target.closest('button'); if (b) set('pv', b.dataset.v); });
+  };
+  if (!who) { tabControls(head); bindHead(); view.innerHTML = `<div class="panel wide"><p class="note">pick someone above, or click a name on the people tab</p></div>`; return; }
+  if (S.pv === 'trends') { renderMetrics(view, personSet(), head); bindHead(); return; }
+  tabControls(head); bindHead();
+  const ps = personSet(), W = personWork(ps, who);
+  if (S.pv === 'data') { renderPersonData(view, W); return; }
+  renderPersonInfo(view, ps, W);
+}
+function renderPersonInfo(view, ps, W) {
+  const { mine } = W, merged = mine.filter(p => p.s === 'merged'), closed = mine.filter(p => p.s === 'closed'), open = mine.filter(p => p.s === 'open');
+  const reviews = W.on(e => e.k === 'review'), approvals = reviews.filter(a => a.e.x === 'approved'), changes = reviews.filter(a => a.e.x === 'changes_requested');
+  const comments = W.on(e => e.k === 'comment'), inline = reviews.reduce((n, a) => n + (a.e.n || 0), 0);
+  const reviewed = new Set([...reviews, ...comments].map(a => a.p.n));
+  const merges = W.on(e => e.k === 'merge'), selfMerges = W.on(e => e.k === 'merge', true), closes = W.on(e => e.k === 'close');
+  const commits = W.acts.filter(a => a.e.k === 'commit' || a.e.k === 'force-push');
+  const firsts = ps.filter(p => (p.fw || '').toLowerCase() === W.w);
+  const times = [...mine.map(p => p.c), ...W.acts.map(a => a.e.t)], first = times.length ? Math.min(...times) : null, last = times.length ? Math.max(...times) : null;
+  const group = Object.entries(D.groups || {}).find(([, ls]) => ls.some(l => l.toLowerCase() === W.w));
+  const assoc = (mine.find(p => p.as) || {}).as;
+  const rate = merged.length + closed.length ? Math.round(100 * merged.length / (merged.length + closed.length)) + '%' : '—';
+  // who they work with: who reviews them, whom they review
+  const gotFrom = topOf(mine.flatMap(p => p.ev.filter(e => (e.k === 'review' || e.k === 'comment') && e.w && e.w.toLowerCase() !== W.w && !isBot(e.w)).map(e => e.w)));
+  const gaveTo = topOf([...reviews, ...comments].map(a => a.p.a));
+  const svcMine = topOf(mine.flatMap(p => p.sv)), svcReviewed = topOf([...reviewed].map(n => BY_N.get(n)).filter(Boolean).flatMap(p => p.sv));
+  const tile = (v, k, d, cls = '') => `<div class="tile"><div class="v ${cls}">${v}</div><div class="k">${k}</div><div class="d">${d}</div></div>`;
+  const chips = (xs, attr) => xs.length ? xs.map(([x, n]) => `<span class="badge clk" ${attr(x)}>${esc(x)} <span class="dim">×${n}</span></span>`).join('') : '<span class="dim">none</span>';
+  const personAttr = x => `data-person="${esc(x)}"`, q = query => `data-q="${esc(query)}" title="the matching PRs on the prs tab"`;
+  // wrapped: the page lifts a tab's tiles above its controls, and here the picker and sub-tabs come first
+  view.innerHTML = `<div class="person-info"><div class="tiles person-head">
+      <div class="tile who"><div class="v">${esc(S.who)}</div><div class="k">${group ? `<span class="badge g" style="--gc:${groupColor(group[0])}">${esc(group[0])}</span> ` : ''}${assoc ? esc(assoc.toLowerCase().replace('_', ' ')) : ''}</div>
+        <div class="d">${first ? `active ${fmtDate(first)} → ${fmtDate(last)} · ${fmtDays((last - first) / DAY)}` : 'no activity in the period'}</div></div>
+      ${tile(fmtNum(mine.length), 'PRs opened', `${fmtNum(open.length)} open · ${fmtNum(merged.length)} merged · ${fmtNum(closed.length)} closed · merge rate ${rate}`)}
+      ${tile(fmtNum(commits.length), 'commits pushed', `to ${fmtNum(new Set(commits.map(a => a.p.n)).size)} PRs`)}
+      ${tile(fmtNum(reviews.length), 'reviews given', `${fmtNum(approvals.length)} approvals · ${fmtNum(changes.length)} changes requested · on ${fmtNum(new Set(reviews.map(a => a.p.n)).size)} PRs`, 'ok')}
+      ${tile(fmtNum(comments.length + inline), 'comments', `${fmtNum(comments.length)} in conversation · ${fmtNum(inline)} inline in reviews`)}
+      ${tile(fmtNum(merges.length), 'merged for others', `${fmtNum(closes.length)} closed for others · ${fmtNum(selfMerges.length)} of their own merged`)}
+      ${tile(fmtNum(firsts.length), 'first responder', `median ${fmtDays(median(firsts.map(p => p.fr)))} to answer`)}
+      ${tile(fmtDays(median(merged.map(p => p.td))), 'their time to merge', `median · ${fmtNum(median(merged.map(p => p.rr)) || 0)} rounds · first response to them ${fmtDays(median(mine.filter(p => p.fr >= 0).map(p => p.fr)))}`)}
+    </div>
+    <div class="panels" data-cols="2">
+      <div class="panel"><h2>reviewed by<span class="desc">who reviews and comments on their PRs most</span></h2><div class="chips">${chips(gotFrom, personAttr)}</div></div>
+      <div class="panel"><h2>reviews<span class="desc">whose PRs they review and comment on most</span></h2><div class="chips">${chips(gaveTo, personAttr)}</div></div>
+      <div class="panel"><h2>services they open PRs in</h2><div class="chips">${chips(svcMine, x => q(`author:${S.who} svc:${x}`))}</div></div>
+      <div class="panel"><h2>services they review</h2><div class="chips">${chips(svcReviewed, x => q(`reviewer:${S.who} svc:${x}`))}</div></div>
+    </div>
+    <p class="note">over the PRs the filter above matches (every state, unless set) · trends and data are the sub-tabs above</p></div>`;
+  bindRowClicks(view);
+}
+function renderPersonData(view, W) {
+  const cur = PERSON_LISTS.find(l => l[0] === S.pl) || PERSON_LISTS[0];
+  const counts = Object.fromEntries(PERSON_LISTS.map(([k, , f]) => [k, f(W).length]));
+  const rows = cur[2](W).sort((a, b) => b.at - a.at);
+  view.innerHTML = `<div class="seg plist" id="p-list">${PERSON_LISTS.map(([k, l]) => `<button data-v="${k}" class="${cur[0] === k ? 'on' : ''}">${esc(l)} <span class="dim">${fmtNum(counts[k])}</span></button>`).join('')}</div>
+    <div class="panel wide table"><h2>${esc(cur[1])}<span class="desc">${fmtNum(rows.length)} · latest first · click a row for the PR's detail</span></h2>
+    <table><thead><tr><th class="num">#</th><th>title</th><th>author</th><th>state</th><th class="num">when</th>${rows.some(r => r.n > 1) ? '<th class="num">times</th>' : ''}</tr></thead><tbody>
+    ${rows.map(r => `<tr class="pr" data-n="${r.p.n}"><td class="num"><a href="${prURL(r.p.n)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${r.p.n}</a></td><td class="title">${esc(r.p.t)}</td><td><span class="clk" data-person="${esc(r.p.a)}">${esc(r.p.a)}</span></td><td class="st-${r.p.s}">${r.p.s}</td><td class="num">${fmtDate(r.at)}</td>${rows.some(x => x.n > 1) ? `<td class="num">${r.n || ''}</td>` : ''}</tr>${S.open_n === String(r.p.n) ? `<tr class="detail"><td colspan="6">${detail(r.p)}</td></tr>` : ''}`).join('') || '<tr><td colspan="6" class="empty">none in the period</td></tr>'}
+    </tbody></table></div>`;
+  $('#p-list').addEventListener('click', e => { const b = e.target.closest('button'); if (b) set('pl', b.dataset.v); });
+  bindRowClicks(view);
+}
+
 // ---- the checks tab ----
 // as the close report draws them: each check's question and evidence classes, then every candidate with its
 // evidence in coloured, linked pieces and the AI's score. A check's heading folds it (cf=, the folded ones)
@@ -1440,7 +1588,7 @@ function update(rerenderFilters) {
   S.tab = { queue: 'prs', areas: 'services' }[S.tab] || S.tab; // the tabs' old names, in bookmarked links and saved views
   renderTabs();
   const view = $('#view'); view.innerHTML = '';
-  ({ prs: renderQueue, trends: renderTrends, suggested: renderSuggested, people: renderPeople, services: renderAreas, checks: renderChecks, data: renderData }[S.tab] || renderQueue)(view);
+  ({ prs: renderQueue, trends: renderTrends, suggested: renderSuggested, people: renderPeople, services: renderAreas, checks: renderChecks, data: renderData, person: renderPerson }[S.tab] || renderQueue)(view);
   // a view is the whole state but the tab — the filter every tab shares, the prs tab's columns and sort, the trends tab's layouts — so its controls show on every tab
   if (vc) { $('#tabctl').appendChild(vc); vc.hidden = false; }
   if ($('#viewSel').innerHTML) renderViews();
@@ -1542,7 +1690,7 @@ function viewPromptSections(ask, full) {
 Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: prs (a sortable table), trends (metric panels over time), suggested (easy reviews), services, people (authors and reviewers), checks (close candidates), data (one month's closed and merged PRs, for a spreadsheet).
 Answer with ONE json code block and nothing else, in exactly this form:
 {"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
-The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
+The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
 PRs keys: tab=prs, sort=<column key> (omitted means u, the most recently updated first), dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|tests|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|api|resource|datasource|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, an api version upgrade, a new resource, a new data source, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
 Trends keys: tab=trends, gran=day|week|month, cols=1|2|3, marks=major|minor|none (release markers).
 - m: the panels, separated by |. Each panel is an optional flag prefix then a comma separated list of metric keys: "s:" stacks the series as areas (only for same-unit series that add up, like the review statuses or opened-by-group), "b:" draws bars, "sb:" stacked bars, "t:" shows the panel as a table, "w:" makes the panel span the grid; flags combine ("sbw:"). A key prefixed with ! goes on the right-hand axis, with ~ it is plotted but hidden until the user clicks its legend entry (useful for a dominant series that would flatten the others); a panel may mix at most two units and the second unit is put on the right automatically.
@@ -1693,5 +1841,5 @@ function boot() {
     }).catch(() => {}); // an older prawn: no button
   }
   window.addEventListener('hashchange', () => { readHash(); update(true); });
-  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.tab === 'trends' || S.tab === 'services') update(); }, 150); });
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.tab === 'trends' || S.tab === 'services' || (S.tab === 'person' && S.pv === 'trends')) update(); }, 150); });
 }

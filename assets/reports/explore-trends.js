@@ -121,8 +121,42 @@ function metricCatalogue() {
     add('svc.open.' + sv, 'Open · ' + sv, 'prs', 'services (open)', ctx => atStart(ctx.dailyBy.svc[sv] || new Int32Array(ctx.daily.n), ctx), 'open PRs touching internal/services/' + sv);
     add('svc.opened.' + sv, 'Opened · ' + sv, 'prs', 'services (opened)', count(p => p.sv.includes(sv)), 'PRs opened touching internal/services/' + sv);
   }
+  // a person: what one login did, bucket by bucket — the person view's trends (its tree shows only these areas)
+  const mine = ctx => ctx.M.filter(p => p.lo === ctx.who);
+  const byMe = (test, ownPR) => ctx => ctx.bs.map((_, i) => ctx.evBuckets[i].filter(x => (x.e.w || '').toLowerCase() === ctx.who && (ownPR == null || (x.p.lo === ctx.who) === ownPR) && test(x.e)).length);
+  const onMine = test => ctx => ctx.bs.map((_, i) => ctx.evBuckets[i].filter(x => x.p.lo === ctx.who && (x.e.w || '').toLowerCase() !== ctx.who && !isBot(x.e.w) && test(x.e)).length);
+  const A = 'person · their PRs', R = 'person · reviewing', I = 'person · on their PRs';
+  add('me.opened', 'Opened', 'prs', A, ctx => ctx.bs.map((_, i) => ctx.byBucket[i].filter(p => p.lo === ctx.who).length), 'PRs they opened in the bucket', 'var(--s1)');
+  add('me.merged', 'Merged', 'prs', A, ctx => ctx.bs.map((_, i) => ctx.mergedIn[i].filter(p => p.lo === ctx.who).length), 'their PRs merged in the bucket', 'var(--s7)');
+  add('me.closed', 'Closed unmerged', 'prs', A, ctx => ctx.bs.map((_, i) => ctx.closedIn[i].filter(p => p.lo === ctx.who).length), 'their PRs closed without merging in the bucket', 'var(--s8)');
+  add('me.open', 'Open', 'prs', A, ctx => { const ps = mine(ctx); return ctx.bs.map(t => ps.filter(p => p.c <= t && (!p.x || p.x > t)).length); }, 'their PRs open on the first day of the bucket', 'var(--s1)');
+  add('me.merge_rate', 'Merge rate', 'pct', A, ctx => ctx.bs.map((_, i) => { const m = ctx.mergedIn[i].filter(p => p.lo === ctx.who).length, c = ctx.closedIn[i].filter(p => p.lo === ctx.who).length; return m + c ? 100 * m / (m + c) : null; }), 'of their PRs resolved in the bucket, the share merged');
+  add('me.time_to_merge', 'Time to merge', 'days', A, ctx => ctx.bs.map((_, i) => median(ctx.mergedIn[i].filter(p => p.lo === ctx.who).map(p => p.td))), 'median days their PRs merged in the bucket were open');
+  add('me.first_response', 'First response to them', 'days', A, med(p => p.lo === ctx_who() && p.fr >= 0, p => p.fr), 'median days to the first maintainer response on their PRs, by bucket opened');
+  add('me.rounds', 'Rounds to merge', 'ratio', A, ctx => ctx.bs.map((_, i) => { const ps = ctx.mergedIn[i].filter(p => p.lo === ctx.who); return ps.length ? ps.reduce((n, p) => n + p.rr, 0) / ps.length : null; }), 'mean changes-requested rounds of their PRs merged in the bucket');
+  add('me.size', 'Size', 'ratio', A, ctx => ctx.bs.map((_, i) => median(ctx.byBucket[i].filter(p => p.lo === ctx.who).map(p => p.ad + p.de))), 'median lines added and removed of the PRs they opened in the bucket');
+  add('me.commits', 'Commits pushed', 'events', A, byMe(e => e.k === 'commit' || e.k === 'force-push'), 'commits and force pushes they made, to any PR');
+  add('me.reviews', 'Reviews', 'events', R, byMe(e => e.k === 'review', false), 'reviews they left on other people\'s PRs', 'var(--s3)');
+  add('me.approvals', 'Approvals', 'events', R, byMe(e => e.k === 'review' && e.x === 'approved', false), 'approvals they gave', 'var(--s6)');
+  add('me.changes', 'Changes requested', 'events', R, byMe(e => e.k === 'review' && e.x === 'changes_requested', false), 'changes they requested', 'var(--s4)');
+  add('me.commented', 'Reviews without a verdict', 'events', R, byMe(e => e.k === 'review' && e.x !== 'approved' && e.x !== 'changes_requested', false), 'reviews that only commented');
+  add('me.comments', 'Comments', 'events', R, byMe(e => e.k === 'comment', false), 'conversation comments they left on other people\'s PRs', 'var(--s5)');
+  add('me.review_comments', 'Review comments', 'events', R, ctx => ctx.bs.map((_, i) => ctx.evBuckets[i].reduce((n, x) => n + ((x.e.w || '').toLowerCase() === ctx.who && x.p.lo !== ctx.who && x.e.k === 'review' ? x.e.n || 0 : 0), 0)), 'inline comments across their reviews');
+  add('me.prs_touched', 'PRs reviewed', 'prs', R, ctx => ctx.bs.map((_, i) => new Set(ctx.evBuckets[i].filter(x => (x.e.w || '').toLowerCase() === ctx.who && x.p.lo !== ctx.who && (x.e.k === 'review' || x.e.k === 'comment')).map(x => x.p.n)).size), 'distinct other people\'s PRs they reviewed or commented on', 'var(--s1)');
+  add('me.merges', 'Merged for others', 'events', R, byMe(e => e.k === 'merge', false), 'other people\'s PRs they merged', 'var(--s7)');
+  add('me.self_merges', 'Merged their own', 'events', A, byMe(e => e.k === 'merge', true), 'their own PRs they merged themselves');
+  add('me.closes', 'Closed for others', 'events', R, byMe(e => e.k === 'close', false), 'other people\'s PRs they closed', 'var(--s8)');
+  add('me.labels', 'Labels added', 'events', R, byMe(e => e.k === 'label+'), 'labels they put on PRs');
+  add('me.first_responses', 'First responses', 'prs', R, count(p => (p.fw || '').toLowerCase() === ctx_who()), 'PRs opened in the bucket that they answered first');
+  add('me.response_time', 'Their response time', 'days', R, med(p => (p.fw || '').toLowerCase() === ctx_who(), p => p.fr), 'median days to their first response, on the PRs they answered first, by bucket opened');
+  add('me.got_reviews', 'Reviews received', 'events', I, onMine(e => e.k === 'review'), 'reviews other people left on their PRs', 'var(--s3)');
+  add('me.got_changes', 'Changes requested of them', 'events', I, onMine(e => e.k === 'review' && e.x === 'changes_requested'), 'changes requested on their PRs', 'var(--s4)');
+  add('me.got_comments', 'Comments received', 'events', I, onMine(e => e.k === 'comment'), 'conversation comments other people left on their PRs', 'var(--s5)');
   return M_;
 }
+// the person a person metric is about: the person view's login, lowercase
+const ctx_who = () => (S.who || '').toLowerCase();
+const isPersonArea = a => a.startsWith('person · ');
 const METRICS = metricCatalogue();
 const METRIC = Object.fromEntries(METRICS.map(m => [m.key, m]));
 const METRICS_SIZE_KEYS = METRICS.filter(m => m.area === 'size labels').map(m => m.key);
@@ -161,6 +195,7 @@ const DEFAULT_M = 's:backlog.nodraft,backlog.drafts|sb:flow.opened,flow.merged,f
   + '|' + [...GROUP_NAMES, 'community'].map(g => 'quality.reviews.' + g).join(',') + '|' + [...GROUP_NAMES, 'community'].map(g => 'quality.review_comments.' + g).join(',')
   + (PARTNER_WORK ? '|' + PARTNER_WORK[4] : '');
 
+const DEFAULT_PM = 'sb:me.opened,me.merged,me.closed|me.open|sb:me.reviews,me.approvals,me.changes|me.comments,me.review_comments|me.prs_touched,me.first_responses|sb:me.merges,me.closes|me.commits|me.time_to_merge,me.first_response|sb:me.got_reviews,me.got_changes';
 // ---- selection state: groups (panels) of keys, stacked or not, from the hash's m=; a metric may sit in several panels ----
 const T = { groups: [], colors: {} };
 const colorOf = (gi, key) => T.colors[gi + ':' + key] || 'var(--ink-2)';
@@ -172,7 +207,11 @@ function groupsString() { return T.groups.map(g => { const f = (g.stack ? 's' : 
 const CHART_TYPES = [['line', 'line'], ['stacked', 'stacked area'], ['bars', 'bars'], ['stacked-bars', 'stacked bars'], ['table', 'table']];
 const chartType = g => g.table ? 'table' : (g.stack ? 'stacked' : '') + (g.bars ? (g.stack ? '-bars' : 'bars') : '') || 'line';
 // m= in the hash: '' is the default set, 'none' an emptied one (so clear sticks), anything else the selection
-function syncGroups() { T.groups = T.groups.filter(g => g.keys.length); assignColors(); const gs = groupsString(); S.m = gs === DEFAULT_M ? '' : gs === '' ? 'none' : gs; }
+// the person view keeps its own picks (pm=, defaults DEFAULT_PM) apart from the trends tab's (m=, DEFAULT_M)
+const personTrends = () => S.tab === 'person';
+const selKey = () => personTrends() ? 'pm' : 'm';
+const defaultSel = () => personTrends() ? DEFAULT_PM : DEFAULT_M;
+function syncGroups() { T.groups = T.groups.filter(g => g.keys.length); assignColors(); const gs = groupsString(); S[selKey()] = gs === defaultSel() ? '' : gs === '' ? 'none' : gs; }
 function selectedKeys() { return [...new Set(T.groups.flatMap(g => g.keys.map(k => k.key)))]; }
 // colours are per panel: a metric's preferred colour when it has one, else the palette in order, skipping colours taken in
 // that panel — unless every metric in the panel prefers the same colour (one group's several series), which would be unreadable
@@ -222,7 +261,8 @@ function panelTitle(g) {
 }
 
 // ---- the context every metric computes from: the bucket grid over the filtered set ----
-function metricContext() {
+function metricContext(set) {
+  const pool = set || M; // the filtered set, or the PRs a person view measures
   const from = PERIOD.from, to = PERIOD.to;
   const gran = S.gran, step = GRAN_STEP[gran] || DAY;
   let bs = buckets(from, to, gran);
@@ -230,7 +270,7 @@ function metricContext() {
   if (bs.length > 2 && to - bs[bs.length - 1] < step * 0.6) bs = bs.slice(0, -1);
   const byBucket = bs.map(() => []), mergedIn = bs.map(() => []), closedIn = bs.map(() => []), touched = bs.map(() => new Set());
   const evBuckets = bs.map(() => []);
-  for (const p of M) {
+  for (const p of pool) {
     let i;
     if (p.c >= from && (i = bucketIndex(bs, p.c)) >= 0) byBucket[i].push(p);
     if (p.m && p.m >= from && (i = bucketIndex(bs, p.m)) >= 0) mergedIn[i].push(p);
@@ -245,32 +285,34 @@ function metricContext() {
   const evCount = (test, maintOnly = true, onPR = () => true) => bs.map((_, i) => evBuckets[i].filter(x => (maintOnly ? x.maint : !x.maint) && onPR(x.p) && test(x.e)).length);
   const evSum = (weight, onPR = () => true) => bs.map((_, i) => evBuckets[i].reduce((n, x) => n + (x.maint && onPR(x.p) ? weight(x.e) : 0), 0));
   const evSide = (test, side) => bs.map((_, i) => evBuckets[i].filter(x => x.side === side && test(x.e)).length);
-  const daily = dailyStates(M, from, to);
+  const daily = dailyStates(pool, from, to);
   const dailyTotal = new Int32Array(daily.n); for (let i = 0; i < daily.n; i++) for (const c of daily.counts) dailyTotal[i] += c[i];
   const dailyBy = { group: {}, effort: {}, svc: {}, status: REVIEW_NAMES.map(() => new Int32Array(daily.n)), who: WHO_CATS.map(() => new Int32Array(daily.n)), span: {} };
   const bumpRange = (arr, s0, e0) => { const [a, b] = dayRange(s0, e0, daily.d0, daily.d0 + daily.n - 1); for (let d = a; d <= b; d++) arr[d - daily.d0]++; };
   const bump = (arr, p) => { for (const iv of p.iv) bumpRange(arr, iv.s, iv.e); };
   for (const g of [...GROUP_NAMES, 'community']) dailyBy.group[g] = new Int32Array(daily.n);
   for (let e = 1; e <= 5; e++) dailyBy.effort[e] = new Int32Array(daily.n);
-  for (const p of M) {
+  for (const p of pool) {
     if (dailyBy.group[p.g]) bump(dailyBy.group[p.g], p);
     bump(dailyBy.effort[p.ef], p);
     for (const sv of p.sv) { if (!dailyBy.svc[sv]) dailyBy.svc[sv] = new Int32Array(daily.n); bump(dailyBy.svc[sv], p); }
     for (const iv of (p.rs || [])) { bumpRange(dailyBy.status[iv.st >> 2], iv.s, iv.e); bumpRange(dailyBy.who[whoCat(iv.st)], iv.s, iv.e); }
     for (const sp of (p.ls || [])) { const k = sp.n.startsWith('ms:') ? sp.n.toLowerCase() : sp.n; if (!dailyBy.span[k]) dailyBy.span[k] = new Int32Array(daily.n); bumpRange(dailyBy.span[k], sp.s, sp.e); }
   }
-  return { M, from, to, gran, bs, step, byBucket, mergedIn, closedIn, touched, evCount, evSum, evSide, daily, dailyTotal, dailyBy, label: bucketLabel(gran) };
+  return { M: pool, from, to, gran, bs, step, byBucket, mergedIn, closedIn, touched, evCount, evSum, evSide, evBuckets, who: ctx_who(), daily, dailyTotal, dailyBy, label: bucketLabel(gran) };
 }
 
 // ---- rendering: the tree, the controls, the panels ----
 const openNodes = new Set(['enabled', 'presets', 'backlog', 'pr status']);
 const collapsed = new Set(); // panel indexes folded in the enabled list
 let treeFilter = '';
-function renderMetrics(view) {
-  T.groups = S.m === 'none' ? [] : parseGroups(S.m || DEFAULT_M); assignColors();
-  const ctx = metricContext();
+// set: the PRs to measure (the filtered set, or the person view's); head: html above the controls (the person view's)
+function renderMetrics(view, set, head = '') {
+  const sel = S[selKey()];
+  T.groups = sel === 'none' ? [] : parseGroups(sel || defaultSel()); assignColors();
+  const ctx = metricContext(set);
   const cache = {}; const values = key => cache[key] || (cache[key] = METRIC[key].compute(ctx));
-  tabControls(`<span>grid <select id="t-cols">${['1', '2', '3'].map(c => `<option value="${c}"${S.cols === c ? ' selected' : ''}>${c}</option>`).join('')}</select></span>
+  tabControls(`${head}<span>grid <select id="t-cols">${['1', '2', '3'].map(c => `<option value="${c}"${S.cols === c ? ' selected' : ''}>${c}</option>`).join('')}</select></span>
     <span class="seg" id="t-gran">${['day', 'week', 'month'].map(g => `<button data-v="${g}" class="${S.gran === g ? 'on' : ''}">${g}</button>`).join('')}</span>
     <span>markers <span class="seg" id="t-marks">${[['major', 'majors'], ['minor', 'minors'], ['none', 'none']].map(([v, l]) => `<button data-v="${v}" class="${S.marks === v ? 'on' : ''}">${l}</button>`).join('')}</span></span>
     <span>y <span class="seg" id="t-zero">${[['1', 'from zero'], ['0', 'fit']].map(([v, l]) => `<button data-v="${v}" class="${S.zero === v ? 'on' : ''}">${l}</button>`).join('')}</span></span>
@@ -334,9 +376,9 @@ function renderTree() {
   const enabled = T.groups.map((g, gi) => `<div class="pgroup ${collapsed.has(gi) ? 'closed' : ''}" data-g="${gi}"><div class="phead" title="click to fold"><span class="pnum">${gi + 1}</span>${esc(panelTitle(g))}${g.stack ? ' <span class="unit">stacked</span>' : ''}<span class="rm" data-rmg="${gi}" title="remove the panel">×</span></div>
       <div class="prows">${g.keys.map(k => row(METRIC[k.key], `${g.keys.length > 1 ? `<span class="lr" title="axis"><button data-lr="L" data-key="${esc(k.key)}" data-g="${gi}" class="${k.right ? '' : 'on'}">L</button><button data-lr="R" data-key="${esc(k.key)}" data-g="${gi}" class="${k.right ? 'on' : ''}">R</button></span>` : ''}<span class="rm" data-rm="${esc(k.key)}" data-g="${gi}">×</span>`, colorOf(gi, k.key), true)).join('')}</div></div>`).join('');
   html += node('enabled', 'enabled', T.groups.length + (T.groups.length === 1 ? ' panel' : ' panels'), T.groups.length ? enabled : '<div class="none">nothing selected — pick from below, or drag a metric onto a panel</div>');
-  html += node('presets', 'presets', PRESETS.length, PRESETS.map(([name, desc, keys, stack]) => `<label class="opt preset" data-preset="${esc(name)}" title="${esc(keys.join(', '))}"><span class="sw all"></span>${esc(name)}<span class="desc">${esc(desc)}</span></label>`).join(''));
+  if (!personTrends()) html += node('presets', 'presets', PRESETS.length, PRESETS.map(([name, desc, keys, stack]) => `<label class="opt preset" data-preset="${esc(name)}" title="${esc(keys.join(', '))}"><span class="sw all"></span>${esc(name)}<span class="desc">${esc(desc)}</span></label>`).join(''));
   const f = treeFilter.toLowerCase();
-  for (const area of AREAS) {
+  for (const area of AREAS.filter(a => isPersonArea(a) === personTrends())) {
     const ms = METRICS.filter(m => m.area === area && (!f || m.label.toLowerCase().includes(f) || m.key.includes(f)));
     if (!ms.length) continue;
     html += node(area, area, ms.length, ms.map(m => row(m)).join(''));
@@ -345,7 +387,7 @@ function renderTree() {
   tree.querySelectorAll('details').forEach(d => d.addEventListener('toggle', () => { if (d.open) openNodes.add(d.dataset.node); else openNodes.delete(d.dataset.node); }));
   $('#tree-filter').addEventListener('input', e => { treeFilter = e.target.value; for (const d of tree.querySelectorAll('details')) if (treeFilter) d.open = true; renderTree(); $('#tree-filter').focus(); const v = $('#tree-filter'); v.setSelectionRange(v.value.length, v.value.length); });
   $('#tree-clear').addEventListener('click', () => { T.groups = []; refresh(); });
-  $('#tree-defaults').addEventListener('click', () => { T.groups = parseGroups(DEFAULT_M); refresh(); });
+  $('#tree-defaults').addEventListener('click', () => { T.groups = parseGroups(defaultSel()); refresh(); });
   tree.addEventListener('contextmenu', e => { const lab = e.target.closest('label.opt[data-key]'); if (lab) showInfo(e, lab.dataset.key); });
   tree.addEventListener('click', e => {
     const lr = e.target.closest('button[data-lr]'); if (lr) { e.preventDefault(); const g = T.groups[+lr.dataset.g]; const k = g && g.keys.find(x => x.key === lr.dataset.key); if (k) { k.right = lr.dataset.lr === 'R'; refresh(); } return; }
