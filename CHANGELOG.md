@@ -1,4 +1,4 @@
-## Unreleased
+## v0.6.0 (2026-10-07)
 
 - a **person** view: pick anyone, then **info** (their numbers and who they work with), **trends** (their work over time, picked like the trends tab) and **data** (every PR they opened, reviewed, approved, commented on, merged or closed)
 - names on the people tab open the person view, and its numbers open the matching list
