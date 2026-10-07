@@ -1,4 +1,4 @@
-## Unreleased
+## v0.5.0 (2026-10-07)
 
 - the 🦐 prawn title links to prawn on github
 - sort the prs table by several columns: shift-click a header to sort by it next
