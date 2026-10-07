@@ -155,6 +155,9 @@ func build(f *cli.FlagData, sync int) error {
 	if in.Tests, err = d.AllTCBuilds(); err != nil {
 		return err
 	}
+	if in.TestCmds, err = d.TestComments(); err != nil {
+		return err
+	}
 	withEvents := 0
 	for _, p := range in.PRs {
 		if len(in.Events[p.Number]) > 0 {

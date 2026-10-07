@@ -142,6 +142,7 @@ type PR struct {
 	Ahead          *int     `json:"ah,omitempty"`
 	CIDrift        *int     `json:"cdr,omitempty"`
 	Tests          *Tests   `json:"tc,omitempty"` // the acceptance tests teamcity ran for it, open PRs only
+	TestRun        *TestRun `json:"ts,omitempty"` // the latest /test asked on it, and the latest results the bot posted
 	Props          []string `json:"pp,omitempty"` // the schema properties the diff adds or changes on existing resources, open PRs only
 
 	FirstResponseDays float64 `json:"fr"` // days to the first maintainer response, -1 when none yet
@@ -253,6 +254,7 @@ type Input struct {
 	Diffs    map[int]string       // unified diffs, stored for the open set only
 	CI       map[int]db.CI        // the detail behind the check state, measured for the open set on every fetch
 	Tests    map[int][]db.TCBuild // teamcity's acceptance test builds, by PR
+	TestCmds map[int][]db.Comment // the /test comments and the bot's results, by PR
 }
 
 // labels and milestones the state machine reads
@@ -328,6 +330,7 @@ func Build(in Input, cfg Config) *Data {
 		}
 		if p.State == db.PROpen {
 			row.Tests = tests(in.Tests[p.Number], in.Commits[p.Number], testService)
+			row.TestRun = testRun(in.TestCmds[p.Number], in.Commits[p.Number])
 		}
 		if g, ok := groupOf[strings.ToLower(p.Author)]; ok {
 			row.Group = g

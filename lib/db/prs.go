@@ -511,3 +511,27 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// TestComments returns, by PR, the comments of the /test flow, oldest first:
+// the /test commands (which the bot edits to list the builds it started) and
+// the bot's results (marked <!-- teamcity-test-results -->).
+func (d *DB) TestComments() (map[int][]Comment, error) {
+	rows, err := d.Query(`SELECT id, pr_number, author, author_association, created_at, body, url FROM comments
+		WHERE body LIKE '/test%' OR body LIKE '%<!-- teamcity-test-results -->%' ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("querying /test comments: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[int][]Comment{}
+	for rows.Next() {
+		var c Comment
+		var created string
+		if err := rows.Scan(&c.ID, &c.PRNumber, &c.Author, &c.AuthorAssociation, &created, &c.Body, &c.URL); err != nil {
+			return nil, fmt.Errorf("scanning comment: %w", err)
+		}
+		c.CreatedAt = fromDBTime(created)
+		out[c.PRNumber] = append(out[c.PRNumber], c)
+	}
+	return out, rows.Err()
+}
