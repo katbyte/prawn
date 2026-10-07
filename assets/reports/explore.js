@@ -53,7 +53,7 @@ for (const c of (D.checks || [])) { const p = BY_N.get(c.n); if (p) p.checks.pus
 for (const p of D.prs) p.checkNames = p.checks.map(c => c.check).join(',');
 
 // ---- state: everything the url hash carries ----
-const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sg: '', mo: '', pd: '', yr: '', ddc: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
+const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sg: '', mo: '', pd: '', yr: '', ddc: '', cf: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
 const S = { ...DEFAULTS };
 // the state filter's default depends on the tab: open PRs everywhere, every state on trends — until it is set explicitly
 const stateFilter = () => S.st ?? (S.tab === 'trends' || S.tab === 'data' ? '' : 'open');
@@ -253,7 +253,7 @@ function bindPickers() {
 const TABS = [['prs', 'prs'], ['trends', 'trends'], ['suggested', 'suggested'], ['services', 'services'], ['people', 'people'], ['checks', 'checks'], ['data', 'data']];
 function renderTabs() {
   const counts = { prs: queueRows().length, // the prs tab's show, and a grouping that drops PRs, narrow its table: so its count too
-    trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: M.reduce((n, p) => n + p.checks.length, 0), data: monthRows().length };
+    trends: M.length, suggested: suggestions().reduce((n, c) => n + c.prs.length, 0), people: new Set(M.map(p => p.a)).size, services: new Set(M.flatMap(p => p.sv)).size, checks: checkSections(false).reduce((n, sec) => n + sec.prs.length, 0), data: monthRows().length };
   // the tab is the header's dropdown, where the page's name was; the controls row keeps the tab's own controls
   $('#tabSel').innerHTML = TABS.map(([id, label]) => `<option value="${id}"${S.tab === id ? ' selected' : ''}>${label} · ${fmtNum(counts[id])}</option>`).join('');
   $('#controls').innerHTML = `<span id="tabctl" style="display:contents"></span>`;
@@ -774,10 +774,11 @@ function openTabs(rows) {
   if (!box.open) box.showModal();
 }
 function openAll() {
-  const rows = unfoldedRows(); if (!rows.length) return;
+  // on the checks tab, the candidates of the checks not folded, each PR once
+  const rows = S.tab === 'checks' ? [...new Set(checkSections(true).flatMap(sec => sec.prs))] : unfoldedRows(); if (!rows.length) return;
   if (rows.length <= OPEN_ASK) { openTabs(rows); return; }
   $('#op-msg').textContent = `open ${fmtNum(rows.length)} PRs in new tabs?`;
-  $('#op-desc').textContent = 'every PR in the table, the folded groups left out — narrow the filter, or fold groups, to open fewer';
+  $('#op-desc').textContent = S.tab === 'checks' ? 'every candidate of the checks that are not folded — fold checks, or narrow the filter, to open fewer' : 'every PR in the table, the folded groups left out — narrow the filter, or fold groups, to open fewer';
   $('#op-ok').textContent = `open ${fmtNum(rows.length)} tabs`; $('#op-ok').onclick = () => openTabs(rows);
   $('#openbox').showModal();
 }
@@ -814,7 +815,7 @@ function renderExportFields() {
 const keepExportFields = () => { exportFields = [...$('#ex-cols').querySelectorAll('input')].map(i => [i.value, i.checked]); };
 function openExport() {
   // with groups folded, what is on show is what is meant: the box starts ticked, and has nothing to do otherwise
-  const folded = unfoldedRows().length < queueRows().length;
+  const folded = S.tab === 'checks' ? checkSections(true).length < checkSections(false).length : unfoldedRows().length < queueRows().length;
   $('#ex-shownonly').checked = folded; $('#ex-shownonly').disabled = !folded;
   $('#ex-shownonly').parentElement.title = folded ? 'leave out the folded groups: export only the groups that are open' : 'no groups are folded, so everything is on show';
   syncExportCount();
@@ -847,10 +848,10 @@ function openExport() {
 function exportPick() {
   const by = exportByKey(), cols = [...$('#ex-cols').querySelectorAll('input:checked')].map(i => by[i.value]).filter(Boolean);
   const rows = exportRows();
-  return { links: $('#ex-links').checked, cols, rows, sections: grouped(rows) };
+  return { links: $('#ex-links').checked, cols, rows, sections: S.tab === 'checks' ? checkSections($('#ex-shownonly').checked) : grouped(rows) };
 }
 // only shown: the folded groups are left out, as open leaves them out — every row of the groups that are open, drawn yet or not
-const exportRows = () => ($('#ex-shownonly').checked ? unfoldedRows() : queueRows());
+const exportRows = () => S.tab === 'checks' ? checkSections($('#ex-shownonly').checked).flatMap(sec => sec.prs) : ($('#ex-shownonly').checked ? unfoldedRows() : queueRows());
 const syncExportCount = () => { $('#ex-n').textContent = `${fmtNum(exportRows().length)} PRs`; };
 $('#ex-shownonly').addEventListener('change', syncExportCount);
 // markdown: a list, a PR a line — the number (linked), the title, then the other picked columns as label: value.
@@ -1017,7 +1018,7 @@ function detail(p) {
     open && t ? fact('test builds', t.b.map(b => `<a href="${esc(b.u)}" target="_blank" rel="noopener" class="${TC_CLASS[b.st]}" onclick="event.stopPropagation()">${esc(b.sv)}</a>`).join(', ') + (t.n > t.b.length ? ` <span class="dim">· ${fmtNum(t.n)} runs in all</span>` : '')) : '',
     fact('closes', p.li && p.li.length ? p.li.map(n => `<a href="https://github.com/${D.repo}/issues/${n}" target="_blank" rel="noopener">#${n}</a>`).join(' ') : ''),
     fact('milestone', p.ms ? esc(p.ms) : ''),
-    fact('checks', p.checks.map(c => `<span class="badge">${esc(c.check)}${c.score ? ' ' + c.score : ''}</span> ${c.ev.map(esc).join(' · ')}`).join('<br>')),
+    fact('checks', p.checks.map(c => `<span class="badge">${esc(c.check)}${c.score ? ' ' + c.score : ''}</span> ${c.ev.map(line => esc(line.map(b => b.t).join(' '))).join(' · ')}`).join('<br>')),
   ].filter(Boolean).join('');
 
   // what the change is, first and large: its kind, its size, and how much reviewing it takes
@@ -1340,17 +1341,63 @@ function renderData(view) {
 }
 
 // ---- the checks tab ----
+// as the close report draws them: each check's question and evidence classes, then every candidate with its
+// evidence in coloured, linked pieces and the AI's score. A check's heading folds it (cf=, the folded ones)
+const evBit = b => b.u ? `<a class="${b.k || ''}" href="${esc(b.u)}" target="_blank" rel="noopener">${esc(b.t)}</a>` : `<span class="${b.k || ''}">${esc(b.t)}</span>`;
+// waiting for response: open PRs where a reviewer asked the author for something — a review that is not an approval, or a
+// comment, from a maintainer or anyone in a configured group — and the author has done nothing since, for over six months. The
+// clock starts at the first such ask after the author last acted: a later maintainer comment or a merge of main does
+// not restart it, and neither does the waiting-response label, which comes and goes. Worked out on the page
+const labelWaiting = 'waiting-response', WAITING_CHECK = 'waiting for response', WAITING_DAYS = 182;
+// who asks: the maintainers and everyone in a configured group (partners review too) — not a passer-by's "+1, any update?"
+const ASKERS = new Set([...MAINT, ...Object.values(D.groups || {}).flat().map(l => l.toLowerCase())]);
+const isAsk = (p, e) => (e.k === 'comment' || (e.k === 'review' && e.x !== 'approved')) && e.w && e.w !== p.a && !isBot(e.w) && ASKERS.has(e.w.toLowerCase());
+const waitingAsk = p => { if (p.s !== 'open') return null; const since = p.lu || p.c; return p.ev.find(e => e.t > since && isAsk(p, e)) || null; };
+const waitingDays = p => { const e = waitingAsk(p); return e ? (NOW - e.t) / DAY : null; };
+function waitingItems() {
+  return D.prs.filter(p => waitingDays(p) > WAITING_DAYS)
+    .sort((a, b) => waitingDays(b) - waitingDays(a))
+    .map(p => { const e = waitingAsk(p), asked = e.k === 'review' ? (e.x === 'changes_requested' ? 'requested changes' : 'reviewed') : 'commented';
+      return { check: WAITING_CHECK, n: p.n,
+        m: `opened ${fmtDays((NOW - p.c) / DAY)} ago · last activity ${fmtDays((NOW - p.la) / DAY)} ago · 💬 ${p.cm} · 👍 ${p.th}`,
+        ev: [[{ t: `@${e.w}`, k: 'ver' }, { t: asked }, { t: `${fmtDate(e.t)}, ${fmtDays((NOW - e.t) / DAY)} ago`, k: 'bad' }, { t: '— nothing from the author since', k: 'dim' }],
+          [{ t: 'the author last acted' }, { t: p.lu ? `${fmtDate(p.lu)}, ${fmtDays((NOW - p.lu) / DAY)} ago` : 'never since opening it', k: 'warn' },
+            ...(p.l.includes(labelWaiting) ? [{ t: '· labelled', k: 'dim' }, { t: labelWaiting, k: 'mid' }] : [])]] }; });
+}
+const WAITING_HEAD = { check: WAITING_CHECK, q: 'a reviewer asked the author for something over six months ago and has heard nothing since — nudge, take over, or close?' };
+// every candidate the tab lists, and each check's heading, in the order the tab draws them
+const checkCandidates = () => [...(D.checks || []), ...waitingItems()];
+const checkHeads = () => new Map([...(D.checkSections || []), WAITING_HEAD].map(h => [h.check, h]));
+// the candidates as sections of PRs, folded checks left out when only those on show are wanted: what export writes
+function checkSections(onlyShown) {
+  const inM = new Set(M.map(p => p.n)), folded = new Set(S.cf ? S.cf.split(',') : []), by = new Map();
+  for (const c of checkCandidates()) { if (!inM.has(c.n) || (onlyShown && folded.has(c.check))) continue; if (!by.has(c.check)) by.set(c.check, []); const p = BY_N.get(c.n); if (p && !by.get(c.check).includes(p)) by.get(c.check).push(p); }
+  return [...by].map(([name, prs]) => ({ name: name === WAITING_CHECK ? name : 'close ' + name, desc: '', prs }));
+}
 function renderChecks(view) {
-  tabControls('');
-  if (!D.checks || !D.checks.length) { view.innerHTML = `<div class="panel wide"><p class="note">${esc(D.checksNote || 'no close candidates')}</p></div>`; return; }
-  const inM = new Set(M.map(p => p.n));
+  tabControls(`<button class="plain" id="ck-open" title="open every candidate in a new tab — the folded checks left out">open</button><button class="plain" id="ck-export" title="the candidates as a csv, a copy for a spreadsheet, or markdown: pick the columns">export</button>`);
+  $('#ck-export').addEventListener('click', openExport);
+  $('#ck-open').addEventListener('click', openAll);
+  const inM = new Set(M.map(p => p.n)), folded = new Set(S.cf ? S.cf.split(',') : []);
+  const heads = checkHeads();
   const byCheck = new Map();
-  for (const c of D.checks) { if (!inM.has(c.n)) continue; if (!byCheck.has(c.check)) byCheck.set(c.check, []); byCheck.get(c.check).push(c); }
-  view.innerHTML = `<p class="note">every close candidate the checks saw when this page was generated, restricted to the filter · act with <code>prawn close &lt;check&gt; --apply-with-ai</code> · regenerate with <code>prawn explore</code></p>
-    <div class="checks panels">${[...byCheck.entries()].map(([name, items]) => `<div class="panel wide check"><h2>close ${esc(name)}<span class="desc">${items.length} candidates</span></h2>
-      ${items.map(c => { const p = BY_N.get(c.n); return `<div class="item"><a href="${prURL(c.n)}" target="_blank" rel="noopener">#${c.n}</a> ${esc(p ? p.t : '')} <span class="badge">${esc(p ? p.a : '')}</span>${c.score ? `<span class="score ${c.score >= 0.7 ? 'ok' : c.score >= 0.4 ? 'mid' : 'bad'}">${c.score}</span>` : ''}
-        ${c.ev.map(e => `<div class="ev-line">${esc(e)}</div>`).join('')}${c.reason ? `<div class="ev-line"><i>${esc(c.reason)}</i></div>` : ''}</div>`; }).join('')}</div>`).join('')}
+  for (const c of checkCandidates()) { if (!inM.has(c.n)) continue; if (!byCheck.has(c.check)) byCheck.set(c.check, []); byCheck.get(c.check).push(c); }
+  view.innerHTML = `<p class="note">every close candidate the checks saw when this page was generated, restricted to the filter · click a check to fold it · regenerate with <code>prawn explore</code>${D.checks && D.checks.length ? '' : ` · ${esc(D.checksNote || 'the close checks found nothing')}`}</p>
+    <div class="checks">${[...byCheck.entries()].map(([name, items]) => { const h = heads.get(name) || {}, shut = folded.has(name); return `<section class="check${shut ? ' shut' : ''}">
+      <h2 data-check="${esc(name)}" title="${shut ? 'unfold' : 'fold'}"><span class="caret">${shut ? '▸' : '▾'}</span><span class="n">${name === WAITING_CHECK ? '' : 'close '}${esc(name)}</span> <span class="count">— ${fmtNum(items.length)} candidate${items.length === 1 ? '' : 's'}${h.total && h.total !== items.length ? ` of ${fmtNum(h.total)}` : ''}</span></h2>
+      ${shut ? '' : `${h.q ? `<p class="q">${esc(h.q)}</p>` : ''}
+      ${(h.classes || []).length ? `<p class="pills">${h.classes.map(c => `<span class="pill"><span class="${c.k || ''}">${esc(c.name)}</span> <span class="c">${fmtNum(c.n)}</span></span>`).join('')}</p>` : ''}
+      ${h.cmd ? `<p class="cmd">act on these with <code>${esc(h.cmd)}</code></p>` : ''}
+      <div class="items">${items.map(c => { const p = BY_N.get(c.n); return `<div class="item">
+        <h3><a href="${prURL(c.n)}" target="_blank" rel="noopener">#${c.n}</a> ${esc(p ? p.t : '')} ${p ? `<span class="badge clk" data-author="${esc(p.a)}">${esc(p.a)}</span>` : ''}</h3>
+        ${c.m ? `<div class="meta">${esc(c.m)}</div>` : ''}
+        ${c.ev.map(line => `<div class="ev">${line.map(evBit).join(' ')}</div>`).join('')}
+        ${c.score ? `<div class="ai"><span class="score ${c.sk || ''}">${esc(c.score)}</span> <span class="dim">—</span> ${esc(c.reason || '')}</div>` : ''}
+      </div>`; }).join('')}</div>`}
+    </section>`; }).join('')}
       ${!byCheck.size ? '<div class="empty">no candidates among the matching PRs</div>' : ''}</div>`;
+  view.querySelectorAll('.check > h2').forEach(h => h.addEventListener('click', () => { const n = h.dataset.check; if (folded.has(n)) folded.delete(n); else folded.add(n); set('cf', [...folded].join(',')); }));
+  bindRowClicks(view);
 }
 
 // ---- update ----

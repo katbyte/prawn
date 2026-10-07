@@ -4,6 +4,9 @@
 - clearer colours in the terminal: numbers stand out, warnings are orange
 - **show** has api upgrade, new resource and new data source; the docs entries read documentation (provider), (examples), (contributing)
 - **show** lists how many PRs each entry has, and greys out the empty ones
+- the checks tab looks like koi's report: coloured evidence with links, each check's question and classes, and a click on a check folds it
+- a **waiting for response** list on the checks tab: PRs where a reviewer asked for something over six months ago and the author has not answered
+- **open** and **export** on the checks tab
 
 ## v0.3.1 (2026-10-06)
 

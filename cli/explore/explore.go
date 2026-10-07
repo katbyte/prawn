@@ -227,7 +227,7 @@ func build(f *cli.FlagData, sync int) error {
 			cout.Printf("  <fg=208>the checks failed, so the checks tab is empty: %v</>\n", serr)
 			data.ChecksNote = "the checks failed when this page was built: " + serr.Error()
 		} else {
-			data.Checks = checkItems(sections)
+			data.Checks, data.CheckSections = checkItems(sections)
 			cout.Printf("  <yellow>%d</><gray> close candidates across </><yellow>%d</><gray> checks</>\n", len(data.Checks), len(sections))
 		}
 	}
@@ -269,27 +269,35 @@ func viewFrom(flag string, since, now time.Time) string {
 }
 
 // checkItems flattens the report sections into the page's check rows.
-func checkItems(sections []cli.ReportSection) []explore.CheckItem {
+func checkItems(sections []cli.ReportSection) ([]explore.CheckItem, []explore.CheckSection) {
 	var out []explore.CheckItem
+	heads := make([]explore.CheckSection, 0, len(sections))
 	for _, s := range sections {
 		name := s.Name
 		if name == "" {
 			name = s.Slug
 		}
 		name = strings.TrimPrefix(name, "close ")
+		head := explore.CheckSection{Check: name, Question: s.Question, Command: s.Command, Total: s.Total}
+		for _, c := range s.Classes {
+			if c.Count > 0 {
+				head.Classes = append(head.Classes, explore.CheckClass{Name: c.Name, Kind: c.Kind, Count: c.Count})
+			}
+		}
+		heads = append(heads, head)
 		for _, it := range s.Items {
-			ci := explore.CheckItem{Check: name, Number: it.Number, Score: it.AIScore, Reason: it.AIReason}
+			ci := explore.CheckItem{Check: name, Number: it.Number, Meta: it.Meta, Score: it.AIScore, ScoreOf: it.AIKind, Reason: it.AIReason}
 			for _, line := range it.Evidence {
-				var parts []string
+				bits := make([]explore.CheckBit, 0, len(line))
 				for _, sp := range line {
-					parts = append(parts, sp.Text)
+					bits = append(bits, explore.CheckBit{Text: sp.Text, URL: sp.URL, Kind: sp.Kind})
 				}
-				ci.Evidence = append(ci.Evidence, strings.Join(parts, " "))
+				ci.Evidence = append(ci.Evidence, bits)
 			}
 			out = append(out, ci)
 		}
 	}
-	return out
+	return out, heads
 }
 
 // releases lists the provider's v* tags since the date, from the checkout.

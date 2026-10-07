@@ -176,11 +176,38 @@ type Release struct {
 
 // CheckItem is one close-candidate on the checks tab.
 type CheckItem struct {
-	Check    string   `json:"check"`
-	Number   int      `json:"n"`
-	Evidence []string `json:"ev"`
-	Score    string   `json:"score,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
+	Check    string       `json:"check"`
+	Number   int          `json:"n"`
+	Meta     string       `json:"m,omitempty"` // opened, last activity, comments: the line under the title
+	Evidence [][]CheckBit `json:"ev"`          // lines of evidence, each in coloured, linked pieces as the close report draws them
+	Score    string       `json:"score,omitempty"`
+	ScoreOf  string       `json:"sk,omitempty"` // how sure: ok | mid | bad, for its colour
+	Reason   string       `json:"reason,omitempty"`
+}
+
+// CheckBit is one piece of an evidence line: its text, a link when it has
+// one, and its kind (ok, mid, warn, bad, ver, dim, quote) for its colour.
+type CheckBit struct {
+	Text string `json:"t"`
+	URL  string `json:"u,omitempty"`
+	Kind string `json:"k,omitempty"`
+}
+
+// CheckSection is what a check asks and how its candidates split, for the
+// heading above them.
+type CheckSection struct {
+	Check    string       `json:"check"`
+	Question string       `json:"q,omitempty"`
+	Command  string       `json:"cmd,omitempty"`
+	Total    int          `json:"total"`
+	Classes  []CheckClass `json:"classes,omitempty"`
+}
+
+// CheckClass is one evidence class of a check and how many candidates it holds.
+type CheckClass struct {
+	Name  string `json:"name"`
+	Kind  string `json:"k,omitempty"`
+	Count int    `json:"n"`
 }
 
 // Data is everything the page embeds.
@@ -202,6 +229,7 @@ type Data struct {
 	PRs             []PR                `json:"prs"`
 	Releases        []Release           `json:"releases"`
 	Checks          []CheckItem         `json:"checks"`
+	CheckSections   []CheckSection      `json:"checkSections,omitempty"`
 	ChecksNote      string              `json:"checksNote"`
 }
 

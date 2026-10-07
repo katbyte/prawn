@@ -365,9 +365,36 @@ dialog#tlbox { width: min(980px, calc(100vw - 44px)); }
 #tl-head a { color: var(--s1); }
 #tl-events { max-height: 70vh; overflow: auto; margin: 0; }
 @media (max-width: 900px) { .detail .facts { grid-template-columns: 1fr; } }
-.checks .item { padding: 6px 0; border-top: 1px solid var(--grid); font-size: 13px; }
-.checks .item .score { font-weight: 700; margin-left: 6px; }
-.ev-line { font-size: 12px; color: var(--muted); }
+/* the checks tab, as koi's close report draws it: a heading per check with its question and evidence classes,
+   then each candidate on a card, its evidence coloured by what it says */
+.checks { --ok: var(--up); --mid: var(--s4); --warn: var(--s2); --bad: var(--down); --ver: var(--s7); --accent: var(--s1); }
+.checks section.check { margin-bottom: 28px; }
+.checks section.check > h2 { font-size: 16px; margin: 0 0 2px; cursor: pointer; user-select: none; }
+.checks section.check > h2 .caret { display: inline-block; width: 16px; color: var(--muted); font-size: 12px; }
+.checks section.check > h2 .n { color: var(--accent); }
+.checks section.check > h2 .count { color: var(--muted); font-weight: 400; font-size: 13px; }
+.checks section.check.shut > h2 { margin-bottom: 0; }
+.checks .q { margin: 0 0 6px 16px; font-weight: 600; color: var(--mid); font-style: italic; font-size: 13px; }
+.checks .pills { margin: 0 0 6px 16px; }
+.checks .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--page); margin-right: 6px; }
+.checks .pill .c { font-weight: 400; color: var(--muted); }
+.checks .cmd { margin: 0 0 10px 16px; font-size: 12px; color: var(--muted); }
+.checks .cmd code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+.checks .items { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.checks .item { border-top: 1px solid var(--border); padding: 10px 16px; font-size: 13px; }
+.checks .item:first-child { border-top: none; }
+.checks .item h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
+.checks .item h3 a { color: var(--accent); text-decoration: none; }
+.checks .item h3 a:hover, .checks .ev a:hover { text-decoration: underline; }
+.checks .meta { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.checks .ev { margin: 2px 0; }
+.checks .ai { margin-top: 6px; }
+.checks .ai .score { font-weight: 700; font-variant-numeric: tabular-nums; }
+.checks .ok { color: var(--ok); font-weight: 600; } .checks .mid { color: var(--mid); font-weight: 600; } .checks .warn { color: var(--warn); font-weight: 600; }
+.checks .bad { color: var(--bad); font-weight: 600; } .checks .ver { color: var(--ver); font-weight: 600; } .checks .dim { color: var(--muted); }
+.checks .quote { color: var(--muted); font-style: italic; }
+.checks a.ok, .checks a.mid, .checks a.warn, .checks a.bad, .checks a.ver, .checks a.dim, .checks a.quote { text-decoration: none; }
+.checks .ev a:not([class]), .checks .ev a[class=""] { color: var(--accent); }
 @media (max-width: 900px) { .events { columns: 1; } #filters input.wide { width: 100%; } }
 </style>
 </head>
