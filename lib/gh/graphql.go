@@ -45,6 +45,7 @@ type Client struct {
 	httpClient  *http.Client
 	lastReq     time.Time
 	throttleGap time.Duration
+	ignored     string // what the last tolerant request passed over, for LastIgnored
 }
 
 func NewClient(token string) *Client {
@@ -131,6 +132,7 @@ func (c *Client) request(query string, variables map[string]any, out any, tolera
 		return fmt.Errorf("marshalling graphql request: %w", err)
 	}
 
+	c.ignored = ""
 	for attempt := range maxAttempts {
 		c.throttle()
 
@@ -191,6 +193,7 @@ func (c *Client) request(query string, variables map[string]any, out any, tolera
 				for _, e := range envelope.Errors {
 					if e.Type == "NOT_FOUND" || e.Type == "FORBIDDEN" {
 						clog.Log.Debugf("graphql: ignoring %s node error: %s", e.Type, e.Message)
+						c.ignored = e.Type + ": " + e.Message
 						continue
 					}
 					fatal = append(fatal, e)
@@ -262,3 +265,8 @@ func (r RateLimit) WaitIfLow() {
 type Actor struct {
 	Login string `json:"login"`
 }
+
+// LastIgnored is the last error a tolerant request passed over (a node GitHub
+// refused or could not find), "" when the last request had none: why a node
+// came back empty.
+func (c *Client) LastIgnored() string { return c.ignored }

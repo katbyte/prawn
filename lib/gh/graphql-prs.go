@@ -228,7 +228,7 @@ query($owner: String!, $name: String!, $cursor: String) {
     pullRequests(first: 100, after: $cursor, states: [OPEN]) {
       totalCount
       pageInfo { endCursor hasNextPage }
-      nodes { number mergeable baseRefName headRefOid commits(last: 1) { nodes { commit { statusCheckRollup { state } checkSuites(last: 30) { nodes { updatedAt conclusion } } } } } }
+      nodes { number mergeable baseRefName headRefOid updatedAt commits(last: 1) { nodes { commit { statusCheckRollup { state } checkSuites(last: 30) { nodes { updatedAt conclusion } } } } } }
     }
   }
 }`
@@ -243,6 +243,7 @@ type OpenPRStatus struct {
 	CIAwaiting int       // workflows on the head commit github is holding until a maintainer approves them, when they outnumber the ones that ran; else 0
 	BaseRef    string    // the branch it merges into
 	HeadOid    string    // the PR's head commit: what its merge base is measured from
+	UpdatedAt  time.Time // when github last saw it change: a sync that does not have this has missed something
 }
 
 // OpenPRNumbers pages every open PR's number, mergeability, and CI state. The
@@ -260,10 +261,11 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 					TotalCount int      `json:"totalCount"`
 					PageInfo   PageInfo `json:"pageInfo"`
 					Nodes      []struct {
-						Number      int    `json:"number"`
-						Mergeable   string `json:"mergeable"`
-						BaseRefName string `json:"baseRefName"`
-						HeadRefOid  string `json:"headRefOid"`
+						Number      int       `json:"number"`
+						Mergeable   string    `json:"mergeable"`
+						BaseRefName string    `json:"baseRefName"`
+						HeadRefOid  string    `json:"headRefOid"`
+						UpdatedAt   time.Time `json:"updatedAt"`
 						Commits     struct {
 							Nodes []struct {
 								Commit struct {
@@ -287,7 +289,7 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 			return nil, fmt.Errorf("fetching open PR numbers: %w", err)
 		}
 		for _, n := range resp.Repository.PullRequests.Nodes {
-			st := OpenPRStatus{Mergeable: n.Mergeable, BaseRef: n.BaseRefName, HeadOid: n.HeadRefOid}
+			st := OpenPRStatus{Mergeable: n.Mergeable, BaseRef: n.BaseRefName, HeadOid: n.HeadRefOid, UpdatedAt: n.UpdatedAt}
 			if len(n.Commits.Nodes) > 0 {
 				head := n.Commits.Nodes[0].Commit
 				st.CheckState = head.StatusCheckRollup.State
@@ -326,16 +328,17 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 }
 
 var updatedPRsQuery = `
-query($query: String!, $cursor: String, $first: Int!) {
+query($owner: String!, $name: String!, $cursor: String, $first: Int!) {
   rateLimit { cost remaining resetAt }
-  search(query: $query, type: ISSUE, first: $first, after: $cursor) {
-    issueCount
-    pageInfo { endCursor hasNextPage }
-    nodes { ... on PullRequest {` + prFields + `} }
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: $first, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { endCursor hasNextPage }
+      nodes {` + prFields + `}
+    }
   }
 }`
 
-// UpdatedPRsPage is one page of an incremental sync search.
+// UpdatedPRsPage is one page of an incremental sync, or of the backfill's search (which alone has a PRCount).
 type UpdatedPRsPage struct {
 	PRs       []PRNode
 	PageInfo  PageInfo
@@ -343,20 +346,24 @@ type UpdatedPRsPage struct {
 	RateLimit RateLimit
 }
 
-// UpdatedPRs fetches one page of PRs updated since the given time (any state).
-// The search API caps results at 1000; the caller falls back to a full walk beyond that.
+// UpdatedPRs fetches one page of PRs updated since the given time (any state), most recently
+// updated first, and reports no next page once it reaches one that has not changed since.
+// It reads the repository's own list rather than the search API: search answers nothing at
+// all to a fine-grained token asking about a repository its owner does not own.
 func (c *Client) UpdatedPRs(owner, name string, since time.Time, cursor string, pageSize int) (*UpdatedPRsPage, error) {
-	q := fmt.Sprintf("repo:%s/%s is:pr updated:>%s sort:updated-asc", owner, name, since.UTC().Format(time.RFC3339))
-	vars := searchVars(q, cursor)
-	vars["first"] = pageSize
+	vars := map[string]any{"owner": owner, "name": name, "first": pageSize}
+	if cursor != "" {
+		vars["cursor"] = cursor
+	}
 
 	var resp struct {
-		RateLimit RateLimit `json:"rateLimit"`
-		Search    struct {
-			IssueCount int      `json:"issueCount"`
-			PageInfo   PageInfo `json:"pageInfo"`
-			Nodes      []PRNode `json:"nodes"`
-		} `json:"search"`
+		RateLimit  RateLimit `json:"rateLimit"`
+		Repository struct {
+			PullRequests struct {
+				PageInfo PageInfo `json:"pageInfo"`
+				Nodes    []PRNode `json:"nodes"`
+			} `json:"pullRequests"`
+		} `json:"repository"`
 	}
 	// a full page that fails is better answered by a smaller one than by waiting: the caller
 	// drops to UpdatedPRsSmallPage, so only that last resort is retried patiently
@@ -368,12 +375,13 @@ func (c *Client) UpdatedPRs(owner, name string, since time.Time, cursor string, 
 		return nil, fmt.Errorf("fetching updated PRs page: %w", err)
 	}
 
-	return &UpdatedPRsPage{
-		PRs:       resp.Search.Nodes,
-		PageInfo:  resp.Search.PageInfo,
-		PRCount:   resp.Search.IssueCount,
-		RateLimit: resp.RateLimit,
-	}, nil
+	page := &UpdatedPRsPage{PageInfo: resp.Repository.PullRequests.PageInfo, RateLimit: resp.RateLimit}
+	page.PRs = resp.Repository.PullRequests.Nodes
+	if i := slices.IndexFunc(page.PRs, func(n PRNode) bool { return !n.UpdatedAt.After(since) }); i >= 0 {
+		page.PRs, page.PageInfo.HasNextPage = page.PRs[:i], false
+	}
+
+	return page, nil
 }
 
 var closedPRsQuery = `
@@ -452,31 +460,85 @@ func (c *Client) ClosedPRCount(owner, name string, from, to time.Time) (int, err
 // comments, reviews, files and first timeline page, so a few at a time.
 const prsByNumberBatch = 5
 
+// prFieldsCore is a PR without what hangs off it — no comments, reviews,
+// linked issues or timeline: what is asked of a PR GitHub will not return
+// whole (a token it refuses part of the PR to), so the PR is at least known.
+var prFieldsCore = `
+number title body state isDraft
+author { login }
+authorAssociation
+createdAt updatedAt closedAt mergedAt url
+mergeable reviewDecision
+additions deletions changedFiles
+baseRefName headRefName
+labels(first: 30) { nodes { name } }
+files(first: 100) { nodes { path } }
+commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+`
+
 // PRsByNumber fetches whole PRs by number, as a sync's search page would
-// return them — for PRs open on GitHub that a sync's search never returned
-// (its index lags: a PR opened moments before a sync can be missing from it).
-// A number GitHub does not answer for is left out.
-func (c *Client) PRsByNumber(owner, name string, numbers []int) ([]PRNode, error) {
-	var out []PRNode
-	for batch := range slices.Chunk(numbers, prsByNumberBatch) {
+// return them — for the PRs a sync's search did not return (its index lags,
+// and it withholds results from a token an organisation has not authorised).
+// A PR GitHub will not return whole is asked for again alone, then without
+// what hangs off it; failed lists the numbers it would not return at all,
+// with the reason GitHub gave.
+func (c *Client) PRsByNumber(owner, name string, numbers []int) (nodes []PRNode, failed map[int]string) {
+	failed = map[int]string{}
+	get := func(batch []int, fields string) (map[int]PRNode, error) {
 		var q strings.Builder
 		q.WriteString("query($owner: String!, $name: String!) {\n  rateLimit { cost remaining resetAt }\n  repository(owner: $owner, name: $name) {\n")
 		for _, n := range batch {
-			fmt.Fprintf(&q, "    p%d: pullRequest(number: %d) {%s}\n", n, n, prFields)
+			fmt.Fprintf(&q, "    p%d: pullRequest(number: %d) {%s}\n", n, n, fields)
 		}
 		q.WriteString("  }\n}")
 		var resp struct {
 			Repository map[string]json.RawMessage `json:"repository"`
 		}
 		if err := c.DoTolerant(q.String(), repoVars(owner, name, ""), &resp); err != nil {
-			return nil, fmt.Errorf("fetching PRs %v: %w", batch, err)
+			return nil, err
 		}
+		got := map[int]PRNode{}
 		for _, n := range batch {
 			var node PRNode
 			if raw, ok := resp.Repository[fmt.Sprintf("p%d", n)]; ok && json.Unmarshal(raw, &node) == nil && node.Number != 0 {
-				out = append(out, node)
+				got[n] = node
+			}
+		}
+		return got, nil
+	}
+	for batch := range slices.Chunk(numbers, prsByNumberBatch) {
+		got, err := get(batch, prFields)
+		why := "github returned nothing for it"
+		if err != nil {
+			why, got = err.Error(), map[int]PRNode{}
+		} else if msg := c.LastIgnored(); msg != "" {
+			why = msg
+		}
+		for _, n := range batch {
+			if node, ok := got[n]; ok {
+				nodes = append(nodes, node)
+				continue
+			}
+			// alone, then bare: one PR github refuses in part must not cost the others, or itself
+			for _, fields := range []string{prFields, prFieldsCore} {
+				one, oerr := get([]int{n}, fields)
+				if oerr != nil {
+					why = oerr.Error()
+					continue
+				}
+				if node, ok := one[n]; ok {
+					nodes = append(nodes, node)
+					why = ""
+					break
+				}
+				if msg := c.LastIgnored(); msg != "" {
+					why = msg
+				}
+			}
+			if why != "" {
+				failed[n] = why
 			}
 		}
 	}
-	return out, nil
+	return nodes, failed
 }

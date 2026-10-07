@@ -225,17 +225,21 @@ func (f *FlagData) walkPRs(d *db.DB, client *gh.Client, owner, name string) erro
 	return d.SetMeta(metaWalkDone, "1")
 }
 
-// syncPRs pulls every PR (any state) updated since the last sync. The search
-// API caps results at 1000 — beyond that a full walk is cheaper anyway.
+// syncPRs pulls every PR (any state) updated since the last sync, most recently updated first.
 func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) error {
 	last, err := d.GetMeta(metaLastSync)
 	if err != nil {
 		return err
 	}
-	since := time.Time{}
-	if t, terr := time.Parse(time.RFC3339, last); terr == nil {
-		since = t.Add(-syncOverlap)
+	t, terr := time.Parse(time.RFC3339, last)
+	if terr != nil {
+		// no sync point to stop at: the open walk is the way to start over
+		if err := d.DeleteMeta(metaWalkCursor); err != nil {
+			return err
+		}
+		return f.walkPRs(d, client, owner, name)
 	}
+	since := t.Add(-syncOverlap)
 	cout.Printf("syncing PRs of %s updated since <yellow>%s</>...\n", f.RepoTag(), since.Format(time.RFC3339))
 
 	cursor, fetched, pageSize := "", 0, gh.UpdatedPRsPageSize
@@ -251,18 +255,11 @@ func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) erro
 			}
 			return err
 		}
-		if page.PRCount > 900 {
-			cout.Printf("<fg=208>%d PRs updated since the last sync — the search cap looms, re-walking instead</>\n", page.PRCount)
-			if err := d.DeleteMeta(metaWalkCursor); err != nil {
-				return err
-			}
-			return f.walkPRs(d, client, owner, name)
-		}
 		if err := d.SavePRs(bundles(page.PRs), "", ""); err != nil {
 			return err
 		}
 		fetched += len(page.PRs)
-		cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> synced · rate limit: </><yellow>%d</><gray> remaining</>\n", fetched, page.PRCount, page.RateLimit.Remaining)
+		cout.Printf("  <yellow>%d</><gray> synced · rate limit: </><yellow>%d</><gray> remaining</>\n", fetched, page.RateLimit.Remaining)
 		page.RateLimit.WaitIfLow()
 		if !page.PageInfo.HasNextPage {
 			return nil
@@ -340,6 +337,10 @@ func (f *FlagData) backfill(d *db.DB, client *gh.Client, owner, name string, sin
 		}
 	}
 	cout.Printf("  <gray>backfill complete: </><yellow>%d</><gray> closed PRs fetched</>\n", fetched)
+	if fetched == 0 {
+		// the backfill is the one thing left that searches, and search answers a fine-grained token nothing
+		clog.Log.Warnf("github's search found no closed PRs at all: a fine-grained token cannot search a repository its owner does not own, so the history before today is missing — run the backfill once with a classic token")
+	}
 	return nil
 }
 
@@ -484,24 +485,32 @@ func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) er
 	if err != nil {
 		return err
 	}
-	// open on github, but missing here or closed here: a PR the sync's search never returned (its index lags, so
-	// one opened moments before a sync can miss it, and the next sync looks only after that), or one reopened.
-	// Fetched whole, so it is open here too and gets its timeline and diff below
-	var missing []int
-	for number := range open {
-		if states[number] != db.PROpen {
+	// what the sync's search did not bring: github's own list of open PRs is the truth, and its search is not —
+	// the index lags (a PR opened moments before a sync can be missed for good), and a token an organisation has
+	// not authorised (single sign-on, or a fine-grained token) is given few results or none. So every open PR is
+	// checked against the list: missing or closed here, or changed on github since it was stored, it is fetched
+	// whole, and gets its timeline and diff below
+	updated, err := d.OpenUpdated()
+	if err != nil {
+		return err
+	}
+	var missing, stale []int
+	for number, st := range open {
+		switch at, known := updated[number]; {
+		case states[number] != db.PROpen:
 			missing = append(missing, number)
+		case known && st.UpdatedAt.After(at.Add(time.Second)):
+			stale = append(stale, number)
 		}
 	}
-	if len(missing) > 0 {
-		slices.Sort(missing)
-		cout.Printf("  <gray>reconcile: </><yellow>%d</><gray> PRs open on github are missing or closed here — fetching them</>\n", len(missing))
-		nodes, ferr := client.PRsByNumber(owner, name, missing)
-		if ferr != nil {
-			return ferr
-		}
+	if want := slices.Sorted(slices.Values(slices.Concat(missing, stale))); len(want) > 0 {
+		cout.Printf("  <gray>reconcile: </><yellow>%d</><gray> open PRs are missing here and </><yellow>%d</><gray> changed on github since they were stored — fetching them</>\n", len(missing), len(stale))
+		nodes, failed := client.PRsByNumber(owner, name, want)
 		if err := d.SavePRs(bundles(nodes), "", ""); err != nil {
 			return err
+		}
+		for _, n := range slices.Sorted(maps.Keys(failed)) {
+			clog.Log.Warnf("PR #%d is open on github and could not be fetched: %s", n, failed[n])
 		}
 		if states, err = d.PRStates(); err != nil {
 			return err

@@ -538,3 +538,24 @@ func (d *DB) TestComments() (map[int][]Comment, error) {
 	}
 	return out, rows.Err()
 }
+
+// OpenUpdated returns when each locally-open PR was last updated, as stored:
+// what a sync compares with GitHub's own time to see what it has missed.
+func (d *DB) OpenUpdated() (map[int]time.Time, error) {
+	rows, err := d.Query("SELECT number, updated_at FROM prs WHERE state = ?", PROpen)
+	if err != nil {
+		return nil, fmt.Errorf("querying open PRs' updated times: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[int]time.Time{}
+	for rows.Next() {
+		var number int
+		var updated string
+		if err := rows.Scan(&number, &updated); err != nil {
+			return nil, fmt.Errorf("scanning an updated time: %w", err)
+		}
+		out[number] = fromDBTime(updated)
+	}
+	return out, rows.Err()
+}

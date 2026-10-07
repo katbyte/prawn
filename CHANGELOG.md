@@ -1,3 +1,8 @@
+## v0.7.1 (2026-10-07)
+
+- syncing works with a fine-grained token: github's search answers those nothing, which left PRs missing and out of date
+- a PR github refuses in part is still fetched, with less; one it refuses outright is named in the log
+
 ## v0.7.0 (2026-10-07)
 
 - a sync now fetches any PR open on github that it does not have — github's search lags, so one opened moments before a sync could be missed for good
