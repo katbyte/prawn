@@ -1,10 +1,7 @@
-## Unreleased
+## v0.6.0 (2026-10-07)
 
 - the tests box shows the latest `/test`: who asked, when, and the results the bot posted, linked; a **/test** column and `slashtest`, `slashage` query keys
 - the tests box puts its counts beside the state
-
-## v0.6.0 (2026-10-07)
-
 - a **person** view: pick anyone, then **info** (their numbers and who they work with), **trends** (their work over time, picked like the trends tab) and **data** (every PR they opened, reviewed, approved, commented on, merged or closed)
 - names on the people tab open the person view, and its numbers open the matching list
 - a **ci passing (except changelog)** filter: passing, or failing only for the missing changelog entry
