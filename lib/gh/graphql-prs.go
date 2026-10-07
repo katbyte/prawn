@@ -328,17 +328,17 @@ func (c *Client) OpenPRNumbers(owner, name string, progress func(fetched, total 
 }
 
 var updatedPRsQuery = `
-query($owner: String!, $name: String!, $cursor: String, $first: Int!) {
+query($owner: String!, $name: String!, $cursor: String) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
-    pullRequests(first: $first, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pullRequests(first: 100, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { endCursor hasNextPage }
-      nodes {` + prFields + `}
+      nodes { number updatedAt }
     }
   }
 }`
 
-// UpdatedPRsPage is one page of an incremental sync, or of the backfill's search (which alone has a PRCount).
+// UpdatedPRsPage is one page of the backfill's search.
 type UpdatedPRsPage struct {
 	PRs       []PRNode
 	PageInfo  PageInfo
@@ -346,42 +346,45 @@ type UpdatedPRsPage struct {
 	RateLimit RateLimit
 }
 
-// UpdatedPRs fetches one page of PRs updated since the given time (any state), most recently
-// updated first, and reports no next page once it reaches one that has not changed since.
-// It reads the repository's own list rather than the search API: search answers nothing at
-// all to a fine-grained token asking about a repository its owner does not own.
-func (c *Client) UpdatedPRs(owner, name string, since time.Time, cursor string, pageSize int) (*UpdatedPRsPage, error) {
-	vars := map[string]any{"owner": owner, "name": name, "first": pageSize}
-	if cursor != "" {
-		vars["cursor"] = cursor
+// UpdatedPRNumbers lists the PRs (any state) updated since the given time, oldest change first.
+// It reads the repository's own list, most recently updated first, and stops at the first one
+// that has not changed since — rather than the search API, which answers nothing at all to a
+// fine-grained token asking about a repository its owner does not own. Only numbers are asked
+// for, so a sync with nothing to do costs one small request and says how much there is to do
+// before any of it is fetched.
+func (c *Client) UpdatedPRNumbers(owner, name string, since time.Time) ([]int, error) {
+	var numbers []int
+	cursor := ""
+	for {
+		var resp struct {
+			RateLimit  RateLimit `json:"rateLimit"`
+			Repository struct {
+				PullRequests struct {
+					PageInfo PageInfo `json:"pageInfo"`
+					Nodes    []struct {
+						Number    int       `json:"number"`
+						UpdatedAt time.Time `json:"updatedAt"`
+					} `json:"nodes"`
+				} `json:"pullRequests"`
+			} `json:"repository"`
+		}
+		if err := c.Do(updatedPRsQuery, repoVars(owner, name, cursor), &resp); err != nil {
+			return nil, fmt.Errorf("listing updated PRs: %w", err)
+		}
+		for _, n := range resp.Repository.PullRequests.Nodes {
+			if !n.UpdatedAt.After(since) {
+				slices.Reverse(numbers)
+				return numbers, nil
+			}
+			numbers = append(numbers, n.Number)
+		}
+		resp.RateLimit.WaitIfLow()
+		if !resp.Repository.PullRequests.PageInfo.HasNextPage {
+			slices.Reverse(numbers)
+			return numbers, nil
+		}
+		cursor = resp.Repository.PullRequests.PageInfo.EndCursor
 	}
-
-	var resp struct {
-		RateLimit  RateLimit `json:"rateLimit"`
-		Repository struct {
-			PullRequests struct {
-				PageInfo PageInfo `json:"pageInfo"`
-				Nodes    []PRNode `json:"nodes"`
-			} `json:"pullRequests"`
-		} `json:"repository"`
-	}
-	// a full page that fails is better answered by a smaller one than by waiting: the caller
-	// drops to UpdatedPRsSmallPage, so only that last resort is retried patiently
-	do := c.DoTolerant
-	if pageSize > UpdatedPRsSmallPage {
-		do = c.DoTolerantOnce
-	}
-	if err := do(updatedPRsQuery, vars, &resp); err != nil {
-		return nil, fmt.Errorf("fetching updated PRs page: %w", err)
-	}
-
-	page := &UpdatedPRsPage{PageInfo: resp.Repository.PullRequests.PageInfo, RateLimit: resp.RateLimit}
-	page.PRs = resp.Repository.PullRequests.Nodes
-	if i := slices.IndexFunc(page.PRs, func(n PRNode) bool { return !n.UpdatedAt.After(since) }); i >= 0 {
-		page.PRs, page.PageInfo.HasNextPage = page.PRs[:i], false
-	}
-
-	return page, nil
 }
 
 var closedPRsQuery = `

@@ -48,6 +48,9 @@ const backfillWindowCap = 900
 // while the previous sync ran are never missed.
 const syncOverlap = 5 * time.Minute
 
+// syncBatch is how many changed PRs a sync fetches and saves before saying how far it has got.
+const syncBatch = 5
+
 // autoFetchTTL is how fresh the local db must be for a check to skip the
 // pre-run sync.
 const autoFetchTTL = time.Hour
@@ -225,7 +228,7 @@ func (f *FlagData) walkPRs(d *db.DB, client *gh.Client, owner, name string) erro
 	return d.SetMeta(metaWalkDone, "1")
 }
 
-// syncPRs pulls every PR (any state) updated since the last sync, most recently updated first.
+// syncPRs pulls every PR (any state) updated since the last sync: it counts them first, then fetches them.
 func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) error {
 	last, err := d.GetMeta(metaLastSync)
 	if err != nil {
@@ -240,32 +243,32 @@ func (f *FlagData) syncPRs(d *db.DB, client *gh.Client, owner, name string) erro
 		return f.walkPRs(d, client, owner, name)
 	}
 	since := t.Add(-syncOverlap)
-	cout.Printf("syncing PRs of %s updated since <yellow>%s</>...\n", f.RepoTag(), since.Format(time.RFC3339))
+	cout.Printf("asking github which PRs of %s have changed since <yellow>%s</>...\n", f.RepoTag(), since.Format(time.RFC3339))
 
-	cursor, fetched, pageSize := "", 0, gh.UpdatedPRsPageSize
-	for {
-		page, err := client.UpdatedPRs(owner, name, since, cursor, pageSize)
-		if err != nil {
-			// a page github cannot assemble fails every retry and would stop every sync at the
-			// same PR: go on from here a PR at a time, as the backfill does
-			if pageSize > gh.UpdatedPRsSmallPage {
-				cout.Printf("  <fg=208>page failed (%v) — carrying on a PR at a time</>\n", err)
-				pageSize = gh.UpdatedPRsSmallPage
-				continue
-			}
-			return err
-		}
-		if err := d.SavePRs(bundles(page.PRs), "", ""); err != nil {
-			return err
-		}
-		fetched += len(page.PRs)
-		cout.Printf("  <yellow>%d</><gray> synced · rate limit: </><yellow>%d</><gray> remaining</>\n", fetched, page.RateLimit.Remaining)
-		page.RateLimit.WaitIfLow()
-		if !page.PageInfo.HasNextPage {
-			return nil
-		}
-		cursor = page.PageInfo.EndCursor
+	numbers, err := client.UpdatedPRNumbers(owner, name, since)
+	if err != nil {
+		return err
 	}
+	if len(numbers) == 0 {
+		cout.Printf("  <gray>nothing has changed</>\n")
+		return nil
+	}
+	cout.Printf("  <yellow>%d</><gray> PRs have changed — fetching them, oldest change first</>\n", len(numbers))
+
+	// oldest change first and saved as it goes, so a sync that is cut short has lost nothing it will not see again
+	fetched := 0
+	for batch := range slices.Chunk(numbers, syncBatch) {
+		nodes, failed := client.PRsByNumber(owner, name, batch)
+		if err := d.SavePRs(bundles(nodes), "", ""); err != nil {
+			return err
+		}
+		for _, n := range slices.Sorted(maps.Keys(failed)) {
+			clog.Log.Warnf("PR #%d changed on github and could not be fetched: %s", n, failed[n])
+		}
+		fetched += len(batch)
+		cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> fetched</>\n", fetched, len(numbers))
+	}
+	return nil
 }
 
 // backfill walks every PR closed or merged since the date — the rest of the
@@ -285,7 +288,7 @@ func (f *FlagData) backfill(d *db.DB, client *gh.Client, owner, name string, sin
 	end := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
 	if t, terr := time.Parse("2006-01-02", covered); terr == nil {
 		if !since.Before(t) {
-			cout.Verbosef("  <gray>backfill: closed PRs since %s already fetched</>\n", covered)
+			cout.Printf("  <gray>closed PRs since %s are already here</>\n", covered)
 			return nil
 		}
 		end = t // an earlier since: fill only [since, covered)
@@ -406,7 +409,7 @@ func (*FlagData) syncTimelines(d *db.DB, client *gh.Client, owner, name string) 
 		return err
 	}
 	if len(pending) == 0 {
-		cout.Verbosef("  <gray>timelines: every PR's timeline is complete</>\n")
+		cout.Printf("  <gray>every PR's timeline is complete</>\n")
 		return nil
 	}
 	cout.Printf("fetching the remaining timeline pages of <yellow>%d</> PRs with long histories...\n", len(pending))
@@ -473,8 +476,9 @@ func timelineRows(number int, nodes []json.RawMessage) ([]db.Event, []db.Commit)
 // open PR's mergeability and CI state, which change without the PR's
 // updatedAt moving and so are invisible to the incremental sync.
 func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) error {
+	cout.Printf("checking every open PR against github's list: is it here, is it current, can it merge, is its CI passing...\n")
 	open, err := client.OpenPRNumbers(owner, name, func(fetched, total int) {
-		cout.Verbosef("  <gray>reconcile: </><yellow>%d</><gray>/</><yellow>%d</><gray> open PR numbers</>\n", fetched, total)
+		cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> open PRs listed</>\n", fetched, total)
 	})
 	if err != nil {
 		return err
@@ -504,7 +508,7 @@ func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) er
 		}
 	}
 	if want := slices.Sorted(slices.Values(slices.Concat(missing, stale))); len(want) > 0 {
-		cout.Printf("  <gray>reconcile: </><yellow>%d</><gray> open PRs are missing here and </><yellow>%d</><gray> changed on github since they were stored — fetching them</>\n", len(missing), len(stale))
+		cout.Printf("  <yellow>%d</><gray> open PRs are missing here and </><yellow>%d</><gray> changed on github since they were stored — fetching them</>\n", len(missing), len(stale))
 		nodes, failed := client.PRsByNumber(owner, name, want)
 		if err := d.SavePRs(bundles(nodes), "", ""); err != nil {
 			return err
@@ -515,6 +519,9 @@ func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) er
 		if states, err = d.PRStates(); err != nil {
 			return err
 		}
+	}
+	if len(missing)+len(stale) == 0 {
+		cout.Printf("  <gray>every one of the </><yellow>%d</><gray> open PRs is here and current</>\n", len(open))
 	}
 	var gone []int
 	statuses := make(map[int]db.PRStatus, len(open))
@@ -530,7 +537,7 @@ func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) er
 		statuses[number] = db.PRStatus{Mergeable: st.Mergeable, CheckState: st.CheckState}
 	}
 	if len(gone) > 0 {
-		cout.Printf("  <gray>reconcile: </><yellow>%d</><gray> locally-open PRs are no longer open on github — marked closed</>\n", len(gone))
+		cout.Printf("  <yellow>%d</><gray> locally-open PRs are no longer open on github — marked closed</>\n", len(gone))
 		if err := d.MarkPRsClosed(gone); err != nil {
 			return err
 		}
@@ -539,7 +546,7 @@ func (f *FlagData) reconcile(d *db.DB, client *gh.Client, owner, name string) er
 	if err != nil {
 		return err
 	}
-	cout.Verbosef("  <gray>reconcile: mergeability and CI refreshed on </><yellow>%d</><gray> open PRs, </><yellow>%d</><gray> changed</>\n", len(statuses), changed)
+	cout.Printf("  <gray>mergeability and CI refreshed on </><yellow>%d</><gray> open PRs, </><yellow>%d</><gray> changed</>\n", len(statuses), changed)
 
 	// the detail behind the CI state is worth having and not worth failing a fetch over
 	current := make(map[int]gh.OpenPRStatus, len(statuses))
@@ -580,7 +587,7 @@ func settleMergeable(client *gh.Client, owner, name string, open map[int]gh.Open
 			return
 		}
 		slices.Sort(ask)
-		cout.Verbosef("  <gray>reconcile: mergeability of </><yellow>%d</><gray> PRs not worked out yet — asking again (</><yellow>%d</><gray>/</><yellow>%d</><gray>)</>\n", len(ask), pass, mergeablePasses)
+		cout.Printf("  <gray>mergeability of </><yellow>%d</><gray> PRs not worked out yet — asking again (</><yellow>%d</><gray>/</><yellow>%d</><gray>)</>\n", len(ask), pass, mergeablePasses)
 		time.Sleep(mergeableWait)
 		got, err := client.Mergeable(owner, name, ask)
 		if err != nil {
@@ -650,7 +657,7 @@ func syncCI(d *db.DB, client *gh.Client, repo gh.Repo, owner, name string, open 
 		cis = append(cis, ci)
 	}
 	if len(ask) > 0 {
-		cout.Printf("  <gray>reconcile: how long </><yellow>%d</><gray> PRs have been behind their base (one request each, kept until they change)...</>\n", len(ask))
+		cout.Printf("  <gray>how long </><yellow>%d</><gray> PRs have been behind their base (one request each, kept until they change)...</>\n", len(ask))
 		at := map[int]time.Time{}
 		failed := 0
 		for i, number := range ask {
@@ -660,8 +667,8 @@ func syncCI(d *db.DB, client *gh.Client, repo gh.Repo, owner, name string, open 
 				failed++
 				clog.Log.Debugf("merge base of #%d: %v", number, merr)
 			}
-			if (i+1)%50 == 0 {
-				cout.Verbosef("  <yellow>%d</><gray>/</><yellow>%d</>\n", i+1, len(ask))
+			if (i+1)%10 == 0 {
+				cout.Printf("  <yellow>%d</><gray>/</><yellow>%d</><gray> measured</>\n", i+1, len(ask))
 			}
 		}
 		for i := range cis {
@@ -676,7 +683,7 @@ func syncCI(d *db.DB, client *gh.Client, repo gh.Repo, owner, name string, open 
 	if err := d.SaveCI(cis, failing); err != nil {
 		return err
 	}
-	cout.Verbosef("  <gray>reconcile: ci detail on </><yellow>%d</><gray> open PRs — </><yellow>%d</><gray> failing, </><yellow>%d</><gray> measured against their base</>\n", len(cis), len(red), len(distances))
+	cout.Printf("  <gray>ci detail on </><yellow>%d</><gray> open PRs — </><yellow>%d</><gray> failing, </><yellow>%d</><gray> measured against their base</>\n", len(cis), len(red), len(distances))
 	return nil
 }
 
@@ -714,7 +721,7 @@ func (f *FlagData) syncTests(d *db.DB, full bool) error {
 	ctx := context.Background()
 	client := tc.New(f.TC.Server, f.TC.Token)
 	builds, err := client.PRBuilds(ctx, f.TC.Project, since, func(fetched int) {
-		cout.Verbosef("  <yellow>%d</><gray> builds</>\n", fetched)
+		cout.Printf("  <yellow>%d</><gray> builds</>\n", fetched)
 	})
 	if err != nil {
 		return err
@@ -768,7 +775,7 @@ func (f *FlagData) syncDiffs(d *db.DB) error {
 		return err
 	}
 	if len(stale) == 0 {
-		cout.Verbosef("  <gray>diffs: every open PR's diff is current</>\n")
+		cout.Printf("  <gray>every open PR's diff is current</>\n")
 		return nil
 	}
 	repo, err := f.NewRepo()

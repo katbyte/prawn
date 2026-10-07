@@ -1,3 +1,8 @@
+## v0.7.2 (2026-10-07)
+
+- a sync says what it is doing at every step: how many PRs changed, then progress as it fetches and checks them
+- a sync with nothing new finishes in one small request
+
 ## v0.7.1 (2026-10-07)
 
 - syncing works with a fine-grained token: github's search answers those nothing, which left PRs missing and out of date
