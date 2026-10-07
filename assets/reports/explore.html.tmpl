@@ -34,6 +34,11 @@ header .sub { color: var(--ink-2); font-size: 13px; }
 header .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 button.plain, label.plain { border: 1px solid var(--axis); background: var(--surface); color: var(--ink-2); border-radius: 6px; padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer; }
 button.plain:disabled { opacity: .45; cursor: not-allowed; }
+header h1 a.home { color: inherit; text-decoration: none; }
+th sup.sortn { font-size: 9px; margin-left: 2px; color: var(--s1); }
+.then { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.then button.x { padding: 3px 6px; margin-left: 2px; }
+header h1 a.home:hover { text-decoration: underline; }
 select option.none { color: var(--muted); } /* a choice with nothing behind it: still pickable, greyed where the browser draws options itself */
 header .views select { font: inherit; font-size: 12px; background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px; padding: 3px 6px; max-width: 220px; }
 header .views label.plain { display: inline-block; }
@@ -400,7 +405,7 @@ dialog#tlbox { width: min(980px, calc(100vw - 44px)); }
 </head>
 <body>
 <header>
-  <h1>🦐 prawn <span>·</span> <select id="tabSel" title="the tab"></select> <span>· {{ .Repo }}</span></h1>
+  <h1><a class="home" href="https://github.com/katbyte/prawn" target="_blank" rel="noopener" title="prawn on github">🦐 prawn</a> <span>·</span> <select id="tabSel" title="the tab"></select> <span>· {{ .Repo }}</span></h1>
   <span class="sub" id="subtitle">{{ .Count }} PRs open at some point since {{ .Since }}</span>
   <div class="right views">
     <span id="viewhold" hidden><span id="viewctl" hidden>

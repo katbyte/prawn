@@ -53,7 +53,7 @@ for (const c of (D.checks || [])) { const p = BY_N.get(c.n); if (p) p.checks.pus
 for (const p of D.prs) p.checkNames = p.checks.map(c => c.check).join(',');
 
 // ---- state: everything the url hash carries ----
-const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sg: '', mo: '', pd: '', yr: '', ddc: '', cf: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
+const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sort2: '', sg: '', mo: '', pd: '', yr: '', ddc: '', cf: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
 const S = { ...DEFAULTS };
 // the state filter's default depends on the tab: open PRs everywhere, every state on trends — until it is set explicitly
 const stateFilter = () => S.st ?? (S.tab === 'trends' || S.tab === 'data' ? '' : 'open');
@@ -76,7 +76,7 @@ const KEYS = {
   kind: p => p.kd || (p.s === 'open' ? 'other' : null), touches: p => p.k, k: p => p.k, only: p => p.k.length === 1 ? p.k[0] : 'mixed', label: p => p.l, l: p => p.l, court: p => p.ct, c: p => p.ct, state: p => p.s, st: p => p.s,
   effort: p => p.ef, e: p => p.ef, age: p => p.age, idle: p => p.idle, size: p => p.size, files: p => p.f, rounds: p => p.rr,
   tests: p => p.tc ? p.tc.s : 'none', testsfailed: p => p.tc ? p.tc.f : null, testage: p => testAge(p), testsince: p => testsSince(p), failedtest: p => p.tc && p.tc.ft ? p.tc.ft : [], tested: p => p.tc ? p.tc.b.map(b => b.sv) : [],
-  ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], behind: p => p.bh ?? null, behindfor: p => behindFor(p), ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
+  ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], onlyfailing: p => { const f = [...new Set(p.cif || [])]; return f.length === 1 ? f[0] : f.length ? 'several' : null; }, behind: p => p.bh ?? null, behindfor: p => behindFor(p), ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
   props: p => (p.pp || []).length, prop: p => p.pp || [], // how many schema properties the diff touches, and which
   fr: p => p.fr < 0 ? null : p.fr, reviewer: p => p.rw, r: p => p.rw, n: p => p.n, title: p => p.tl, t: p => p.tl,
   draft: p => p.d ? 'yes' : 'no', approved: p => p.approved ? 'yes' : 'no', decision: p => p.rd || 'none', rd: p => p.rd || 'none', milestone: p => p.ms || '', ms: p => p.ms || '',
@@ -197,7 +197,7 @@ function renderFilters() {
   syncDraft();
   $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh', 'sort', 'dir']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR, the most recently updated first
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
-    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
+    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>onlyfailing</code> the check when it is the only one failing, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
     e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
 }
 
@@ -581,14 +581,23 @@ const setCols = keys => { const base = S.tab === 'data' ? prsColKeys() : DEFAULT
 // ties in any sort break this way: the maintainers' court first, then the cheapest, then the longest waiting
 const SORT_PRIORITY = (a, b) => (a.ct === 'maintainer' ? 0 : 1) - (b.ct === 'maintainer' ? 0 : 1) || a.ef - b.ef || (b.cd || 0) - (a.cd || 0);
 // a column's comparator: its own when it has one, else by its sort value with empties last, ties broken by priority
-function colSorter(k) {
+// one column's order, ties left to whatever sorts next
+function colCmp(k) {
   const c = COL[k] || COL[DEFAULTS.sort]; // a column that is gone: the default sort
   if (c.s) return c.s;
   const cmp = (x, y) => {
     if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
     return typeof x === 'number' ? x - y : String(x).localeCompare(String(y));
   };
-  return (a, b) => { const x = c.v(a), y = c.v(b); const r = x == null || y == null ? cmp(x, y) : c.hi ? cmp(y, x) : cmp(x, y); return r || SORT_PRIORITY(a, b); };
+  return (a, b) => { const x = c.v(a), y = c.v(b); return x == null || y == null ? cmp(x, y) : c.hi ? cmp(y, x) : cmp(x, y); };
+}
+// the sorts after the first (sort2=k,k:asc,...): shift-click a header to add one, each with its own direction
+const thenSorts = () => (S.sort2 ? S.sort2.split(',') : []).map(x => { const [k, d] = x.split(':'); return { k, asc: d === 'asc' }; }).filter(t => COL[t.k] && t.k !== S.sort);
+const setThen = ts => set('sort2', ts.map(t => t.k + (t.asc ? ':asc' : '')).join(','));
+// the table's whole order: the sort, then each of the sorts after it, then the usual tie-break
+function tableSorter() {
+  const keys = [{ k: S.sort, asc: S.dir === 'asc' }, ...thenSorts()].map(t => { const c = colCmp(t.k); return t.asc ? (a, b) => -c(a, b) : c; });
+  return (a, b) => { for (const c of keys) { const r = c(a, b); if (r) return r; } return SORT_PRIORITY(a, b); };
 }
 const KIND_ORDER = D.kindOrder || [];
 // show: one kind of PR at a time, on the prs tab — the suggested categories worth a pass of their own, and the property counts
@@ -618,11 +627,14 @@ const VIEWS = [
   ['examples', 'state:open touches:examples'],
   ['contributing docs', 'state:open touches:contributing'],
   ['ci failing', 'state:open ci:failing'],
+  ['ci passing', 'state:open ci:passing'],
+  ['ci (no changelog)', 'state:open ci:failing onlyfailing:changelog'],
   ['ci needs approval', 'state:open ci:approval'],
   ['ci not run', 'state:open ci:none'],
   ['ci expired', 'state:open ci:expired'],
   ['tests failing', 'state:open tests:failing'],
   ['tests passed, nothing since', 'state:open tests:passing testsince:0'],
+  ['tests passed, outdated', 'state:open tests:passing testsince>0'],
   ['never tested', 'state:open tests:none'],
   ['big & old', 'state:open effort>3 age>180'],
   ['maintainer court > 14d', 'state:open court:maintainer cd>14'],
@@ -690,9 +702,12 @@ function queueRows() {
   const show = SHOWS.find(sh => sh[0] === S.sh);
   let rows = show ? M.filter(show[2]) : M.slice();
   const g = groupings()[S.gb]; if (g && g.drop) rows = rows.filter(p => g.of(p) != null); // a grouping that only covers some PRs shows only those
-  rows.sort(colSorter(S.sort)); if (S.dir === 'asc') rows.reverse();
+  rows.sort(tableSorter());
   return rows;
 }
+// a header's place in the sort: 'on' (and 'asc') for the first and the ones after it, numbered when there are several
+const sortClass = k => { if (S.sort === k) return 'on' + (S.dir === 'asc' ? ' asc' : ''); const t = thenSorts().find(x => x.k === k); return t ? 'on then' + (t.asc ? ' asc' : '') : ''; };
+const sortNum = k => { const ts = thenSorts(); if (!ts.length) return ''; const i = S.sort === k ? 0 : ts.findIndex(x => x.k === k) + 1; return i || S.sort === k ? `<sup class="sortn">${i + 1}</sup>` : ''; };
 function renderQueue(view) {
   const rows = queueRows();
   const cols = visibleCols();
@@ -716,7 +731,7 @@ function renderQueue(view) {
       <div class="tile"><div class="v">${fmtNum(rows.reduce((n, p) => n + p.ef, 0))}</div><div class="k">effort points</div><div class="d">Σ effort 1–5, ~${fmtNum(rows.reduce((n, p) => n + p.ef, 0) / 12, 0)} review days</div></div>
       <div class="tile"><div class="v">${fmtDays(median(rows.map(p => p.age)))}</div><div class="k">median age</div><div class="d">oldest ${fmtDays(Math.max(0, ...rows.map(p => p.age)))}</div></div>
     </div>
-    <div class="panel wide table"><h2>PRs<span class="desc">every PR matching the filter · click a row for its life and timeline · click an author, service, or label to filter by it · drag a header to reorder, × removes it, <b>columns</b> adds</span></h2><table id="q-table"><thead><tr>${cols.map(c => `<th class="${c.cls} ${S.sort === c.k ? 'on' + (S.dir === 'asc' ? ' asc' : '') : ''}" data-sort="${c.k}" draggable="true" title="${esc(c.d)}">${c.l}<span class="rm" title="remove the column">×</span></th>`).join('')}</tr></thead><tbody>
+    <div class="panel wide table"><h2>PRs<span class="desc">every PR matching the filter · click a row for its life and timeline · click an author, service, or label to filter by it · shift-click a header to sort by it next · drag a header to reorder, × removes it, <b>columns</b> adds</span></h2><table id="q-table"><thead><tr>${cols.map(c => `<th class="${c.cls} ${sortClass(c.k)}" data-sort="${c.k}" draggable="true" title="${esc(c.d)} — click to sort by it, shift-click to sort by it next">${c.l}${sortNum(c.k)}<span class="rm" title="remove the column">×</span></th>`).join('')}</tr></thead><tbody>
       ${body}
       ${showing > queueLimit ? `<tr><td colspan="${cols.length}" class="more">showing ${queueLimit} of ${showing} — <a id="q-more">show 200 more</a></td></tr>` : ''}
       ${!rows.length ? `<tr><td colspan="${cols.length}" class="empty">nothing matches</td></tr>` : ''}
@@ -724,7 +739,7 @@ function renderQueue(view) {
   const sortOpts = cols.map(c => [c.k, c.l]);
   const on = filtersOn(S.q); // the ready-made filters the query holds
   if (!sortOpts.some(([k]) => k === S.sort) && COL[S.sort]) sortOpts.push([S.sort, COL[S.sort].l]); // sorted by a hidden column
-  tabControls(`<span>sort <select id="q-sort">${sortOpts.map(([v, l]) => `<option value="${v}"${S.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="plain dirbtn" id="q-dir" title="reverse the order — ${S.dir === 'asc' ? 'reversed now' : 'the column\'s own order now: newest, largest, or a to z first'}">${S.dir === 'asc' ? '▴' : '▾'}</button></span>
+  tabControls(`<span>sort <select id="q-sort">${sortOpts.map(([v, l]) => `<option value="${v}"${S.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="plain dirbtn" id="q-dir" title="reverse the order — ${S.dir === 'asc' ? 'reversed now' : 'the column\'s own order now: newest, largest, or a to z first'}">${S.dir === 'asc' ? '▴' : '▾'}</button>${thenSorts().map((t, i) => ` <span class="then">then <button class="plain" data-then="${i}" title="reverse it">${esc(COL[t.k].l)} ${t.asc ? '▴' : '▾'}</button><button class="plain x" data-thenx="${i}" title="stop sorting by it">×</button></span>`).join('')}</span>
     <span>group by <select id="q-group" title="the table in sections, to tackle alike PRs together"><option value="">none</option>${Object.entries(groupings()).sort(byLabel(([, g]) => g.label)).map(([k, g]) => `<option value="${k}"${S.gb === k ? ' selected' : ''}>${g.label}</option>`).join('')}</select></span>${sections ? `<button class="plain" id="q-fold" title="fold every group shut, or unfold them all">${sections.every(sec => shut.has(sec.name)) ? 'unfold all' : 'fold all'}</button>` : ''}
     <span>show <select id="q-show" title="one kind of PR at a time"><option value="">all · ${fmtNum(M.length)}</option>${SHOWS.slice().sort(byLabel(sh => sh[1])).map(([k, l, test]) => { const n = M.filter(test).length; return `<option value="${k}"${S.sh === k ? ' selected' : ''}${n ? '' : ' class="none" title="no PR matching the filter is this kind"'}>${l} · ${n ? fmtNum(n) : 'none'}</option>`; }).join('')}</select></span>
     <span class="picker" id="viewpick" title="ready-made queries; tick as many as apply — the query box shows the result"><button class="plain pick${on.length ? ' on' : ''}" type="button">filter <span class="dim">${on.length ? (on.length <= 2 ? on.map(f => f[0]).join(', ') : `${on[0][0]} +${on.length - 1}`) : S.q ? 'custom query' : 'none'}</span></button>
@@ -732,7 +747,9 @@ function renderQueue(view) {
     ${colPicker(cols)}
     <button class="plain" id="q-open" title="open every PR in the table in a new tab — the ones in folded groups left out">open</button>
     <button class="plain" id="q-export" title="the table as a csv, or copied for a spreadsheet: pick the columns">export</button>`);
-  $('#q-sort').addEventListener('change', e => { S.dir = ''; set('sort', e.target.value); });
+  $('#q-sort').addEventListener('change', e => { S.dir = ''; S.sort2 = ''; set('sort', e.target.value); });
+  view.parentElement.querySelectorAll('[data-then]').forEach(b => b.addEventListener('click', () => { const ts = thenSorts(); ts[+b.dataset.then].asc = !ts[+b.dataset.then].asc; setThen(ts); }));
+  view.parentElement.querySelectorAll('[data-thenx]').forEach(b => b.addEventListener('click', () => { const ts = thenSorts(); ts.splice(+b.dataset.thenx, 1); setThen(ts); }));
   $('#q-dir').addEventListener('click', () => set('dir', S.dir === 'asc' ? '' : 'asc')); // the same flip a second click on the sorted header makes
   $('#q-group').addEventListener('change', e => { S.gc = ''; set('gb', e.target.value); }); // another grouping: other sections, nothing folded
   const fold = $('#q-fold'); if (fold) fold.addEventListener('click', () => set('gc', sections.every(sec => shut.has(sec.name)) ? '' : sections.map(sec => sec.name).join('|')));
@@ -749,7 +766,12 @@ function renderQueue(view) {
   bindColumnPicker(cols);
   $('#q-export').addEventListener('click', openExport);
   $('#q-open').addEventListener('click', openAll);
-  view.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', e => { if (e.target.closest('.rm')) return; const k = th.dataset.sort; if (S.sort === k) S.dir = S.dir === 'asc' ? '' : 'asc'; else S.dir = ''; set('sort', k); }));
+  view.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', e => {
+    if (e.target.closest('.rm')) return; const k = th.dataset.sort;
+    if (e.shiftKey && S.sort !== k) { const ts = thenSorts(), t = ts.find(x => x.k === k); if (t) t.asc = !t.asc; else ts.push({ k, asc: false }); setThen(ts); return; }
+    if (S.sort === k) S.dir = S.dir === 'asc' ? '' : 'asc'; else { S.dir = ''; S.sort2 = ''; }
+    set('sort', k);
+  }));
   view.querySelectorAll('th .rm').forEach(x => x.addEventListener('click', e => { e.stopPropagation(); setCols(cols.map(c => c.k).filter(k => k !== x.parentElement.dataset.sort)); }));
   bindColumnDrag(view, cols);
   const more = $('#q-more'); if (more) more.addEventListener('click', () => { queueLimit += 200; renderQueue(view); });
@@ -982,7 +1004,10 @@ function reviewCard(p) {
 }
 function mergeCard(p) {
   const v = p.mg === 'conflicting' ? 'conflicting' : p.mg === 'mergeable' ? 'mergeable' : p.mg || 'unknown';
-  return card('merge', v, { conflicting: 'bad', mergeable: 'ok' }[v] || 'dim', p.bh == null ? '' : p.bh ? `${commits(p.bh)} behind its base${p.bhs ? `, for ${fmtDays(behindFor(p))}` : ''}` : 'up to date with its base');
+  // how far behind, and since when: the date comes from the merge base, fetched once a PR is behind (the next sync, if not yet)
+  const behind = p.bh == null ? '' : p.bh ? `${commits(p.bh)} behind its base` : 'up to date with its base';
+  const since = !p.bh ? '' : p.bhs ? `last caught up ${fmtDays(behindFor(p))} ago <span class="dim">(${fmtDate(p.bhs)})</span>` : '<span class="dim">since when: after the next sync</span>';
+  return card('merge', v, { conflicting: 'bad', mergeable: 'ok' }[v] || 'dim', behind, since);
 }
 function detail(p) {
   const start = p.c, end = p.x || NOW, span = Math.max(end - start, 1);
@@ -1517,7 +1542,7 @@ function viewPromptSections(ask, full) {
 Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: prs (a sortable table), trends (metric panels over time), suggested (easy reviews), services, people (authors and reviewers), checks (close candidates), data (one month's closed and merged PRs, for a spreadsheet).
 Answer with ONE json code block and nothing else, in exactly this form:
 {"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
-The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
+The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
 PRs keys: tab=prs, sort=<column key> (omitted means u, the most recently updated first), dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|tests|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|api|resource|datasource|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, an api version upgrade, a new resource, a new data source, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
 Trends keys: tab=trends, gran=day|week|month, cols=1|2|3, marks=major|minor|none (release markers).
 - m: the panels, separated by |. Each panel is an optional flag prefix then a comma separated list of metric keys: "s:" stacks the series as areas (only for same-unit series that add up, like the review statuses or opened-by-group), "b:" draws bars, "sb:" stacked bars, "t:" shows the panel as a table, "w:" makes the panel span the grid; flags combine ("sbw:"). A key prefixed with ! goes on the right-hand axis, with ~ it is plotted but hidden until the user clicks its legend entry (useful for a dominant series that would flatten the others); a panel may mix at most two units and the second unit is put on the right automatically.

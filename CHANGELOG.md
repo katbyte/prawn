@@ -1,3 +1,11 @@
+## Unreleased
+
+- the 🦐 prawn title links to prawn on github
+- sort the prs table by several columns: shift-click a header to sort by it next
+- a **tests passed, outdated** filter: tests passed, but commits have been pushed since
+- **ci passing** and **ci (no changelog)** filters: the second is CI failing only for the missing changelog entry
+- the merge box says when the branch last caught up with main
+
 ## v0.4.0 (2026-10-06)
 
 - how long each PR's branch has been behind main: a **behind for** column, `behindfor` query key, and a **mergeable, behind 30d+** filter
