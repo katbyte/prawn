@@ -1,4 +1,4 @@
-## Unreleased
+## v0.4.0 (2026-10-06)
 
 - how long each PR's branch has been behind main: a **behind for** column, `behindfor` query key, and a **mergeable, behind 30d+** filter
 - clearer colours in the terminal: numbers stand out, warnings are orange
