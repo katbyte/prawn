@@ -1,3 +1,7 @@
+## v0.8.0 (2026-10-08)
+
+- export: "copy project filter" copies a filter that shows just these PRs in a github project view
+
 ## v0.7.2 (2026-10-07)
 
 - a sync says what it is doing at every step: how many PRs changed, then progress as it fetches and checks them
