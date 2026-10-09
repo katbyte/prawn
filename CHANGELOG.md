@@ -1,3 +1,8 @@
+## Unreleased
+
+- the export window closes with an x in its corner, and a click outside any window closes it
+- the chart popup's "narrow to this range" sits beside "copy prompt"; its close button is gone, a click outside or esc closes it
+
 ## v0.8.0 (2026-10-08)
 
 - export: "copy project filter" copies a filter that shows just these PRs in a github project view

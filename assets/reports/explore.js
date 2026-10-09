@@ -520,8 +520,8 @@ function showCtx(ev, chart, a, b, point) {
   ctxEl.innerHTML = `<div class="hd">${point ? chart.label(t[b]) : `${chart.label(t[a])} → ${chart.label(t[b])}`}<span class="dim"> · ${point ? 'this point vs the previous' : Math.round((t[b] - t[a]) / DAY) + ' days'}</span></div>
     ${rangeTable(chart, a, b, point)}
     <input id="ctxAsk" placeholder="your question (optional)" autocomplete="off">
-    <div class="row">ask ${AI_TARGETS.map(x => `<button class="plain" data-ai="${x.id}">${x.label}</button>`).join('')}<button class="plain" data-ai="copy">copy prompt</button></div>
-    <div class="row">${point ? '' : `<button class="plain" data-act="zoom">narrow the page to this range</button>`}<button class="plain" data-act="close">close</button></div>`;
+    <div class="row">ask ${AI_TARGETS.map(x => `<button class="plain" data-ai="${x.id}">${x.label}</button>`).join('')}</div>
+    <div class="row"><button class="plain" data-ai="copy">copy prompt</button>${point ? '' : `<button class="plain" data-act="zoom">narrow to this range</button>`}</div>`;
   ctxEl.hidden = false;
   const cw = ctxEl.offsetWidth, ch = ctxEl.offsetHeight;
   ctxEl.style.left = Math.min(ev.clientX + 8, innerWidth - cw - 8) + 'px'; ctxEl.style.top = Math.min(ev.clientY + 8, innerHeight - ch - 8) + 'px';
@@ -530,7 +530,6 @@ function showCtx(ev, chart, a, b, point) {
   ctxEl.onclick = e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const ask = $('#ctxAsk').value.trim();
-    if (btn.dataset.act === 'close') { ctxEl.hidden = true; return; }
     if (btn.dataset.act === 'zoom') { S.from = fmtDate(t[a]); S.to = fmtDate(t[b]); ctxEl.hidden = true; update(true); return; }
     if (btn.dataset.ai === 'copy') { navigator.clipboard?.writeText(rangePrompt(chart, a, b, point, ask)); btn.textContent = 'copied'; return; }
     const x = AI_TARGETS.find(y => y.id === btn.dataset.ai); if (x) window.open(x.url(rangePrompt(chart, a, b, point, ask).slice(0, x.limit)), '_blank', 'noopener');
@@ -1002,6 +1001,14 @@ $('#ex-all').addEventListener('click', () => { $('#ex-cols').querySelectorAll('i
 $('#ex-none').addEventListener('click', () => { $('#ex-cols').querySelectorAll('input').forEach(i => { i.checked = false; }); keepExportFields(); });
 $('#ex-shown').addEventListener('click', () => { exportFields = null; renderExportFields(); }); // the table's columns and order again
 $('#ex-cancel').addEventListener('click', () => $('#exportbox').close());
+// a click outside any dialog closes it, as esc does: a dialog that has something to say about closing (a refresh
+// under way, an upload being sent) hears the same cancel and can refuse
+document.querySelectorAll('dialog').forEach(box => box.addEventListener('mousedown', e => {
+  if (e.target !== box) return;
+  const r = box.getBoundingClientRect();
+  if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return;
+  if (box.dispatchEvent(new Event('cancel', { cancelable: true }))) box.close();
+}));
 $('#ex-csv').addEventListener('click', () => {
   const out = exportTable(','); if (!out.cols) { $('#ex-note').textContent = 'pick at least one column'; return; }
   const a = document.createElement('a');
