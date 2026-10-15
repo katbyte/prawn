@@ -1,4 +1,4 @@
-## Unreleased
+## v0.9.0 (2026-10-15)
 
 - a PR's detail shows how many open PRs change the same files, resources, properties or service; click to see them
 - **same files**, **same resources**, **same properties** and **same service** columns, with `samefiles`, `sameresources`, `sameproperties` and `sameservice` query keys
