@@ -70,10 +70,10 @@ dialog#dbbox { width: min(520px, calc(100vw - 44px)); }
 dialog .x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 4px; cursor: pointer; }
 dialog .x:hover { color: var(--ink); }
 dialog#openbox { width: min(460px, calc(100vw - 44px)); }
-#exportbox, #openbox, #refreshbox, #dbbox, #tlbox { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; width: min(680px, calc(100vw - 44px)); box-shadow: 0 6px 24px rgba(0,0,0,.2); }
-#exportbox::backdrop, #openbox::backdrop, #refreshbox::backdrop, #dbbox::backdrop, #tlbox::backdrop { background: rgba(0,0,0,.45); }
-#exportbox h2, #openbox h2, #refreshbox h2, #dbbox h2, #tlbox h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
-#exportbox h2 .desc, #openbox h2 .desc, #refreshbox h2 .desc, #dbbox h2 .desc, #tlbox h2 .desc { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; }
+#exportbox, #openbox, #refreshbox, #dbbox, #tlbox, #samebox { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; width: min(680px, calc(100vw - 44px)); box-shadow: 0 6px 24px rgba(0,0,0,.2); }
+#exportbox::backdrop, #openbox::backdrop, #refreshbox::backdrop, #dbbox::backdrop, #tlbox::backdrop, #samebox::backdrop { background: rgba(0,0,0,.45); }
+#exportbox h2, #openbox h2, #refreshbox h2, #dbbox h2, #tlbox h2, #samebox h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
+#exportbox h2 .desc, #openbox h2 .desc, #refreshbox h2 .desc, #dbbox h2 .desc, #tlbox h2 .desc, #samebox h2 .desc { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; }
 #exportbox .pick { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
 #exportbox .pick .links, #exportbox .pick .opt2 { display: flex; gap: 6px; align-items: center; font-weight: 400; color: var(--ink-2); cursor: pointer; }
 #exportbox .pick .links { margin-left: auto; } /* the first of the tick boxes pushed to the right */
@@ -387,6 +387,18 @@ tr.detail td { background: var(--page); padding: 10px 14px 12px; }
 dialog#tlbox { width: min(980px, calc(100vw - 44px)); }
 #tl-head a { color: var(--s1); }
 #tl-events { max-height: 70vh; overflow: auto; margin: 0; }
+/* the same-work line under a PR's facts, and the window its counts open */
+.detail .same { font-size: 12px; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; }
+.detail .same b { color: var(--muted); font-weight: 600; width: 82px; }
+.detail .same button { font-size: 11.5px; }
+dialog#samebox { width: calc(100vw - 64px); height: calc(100vh - 64px); max-height: none; display: none; flex-direction: column; }
+dialog#samebox[open] { display: flex; }
+#sm-head a { color: var(--s1); }
+#sm-kind { margin-bottom: 8px; align-self: flex-start; }
+#sm-rows { flex: 1; min-height: 0; overflow: auto; }
+#sm-rows tr.pr td { white-space: nowrap; }
+#sm-rows td.title { max-width: 560px; }
+#sm-rows td.shares { max-width: 560px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 900px) { .detail .facts { grid-template-columns: 1fr; } }
 /* the checks tab, as koi's close report draws it: a heading per check with its question and evidence classes,
    then each candidate on a card, its evidence coloured by what it says */
@@ -456,6 +468,12 @@ dialog#tlbox { width: min(980px, calc(100vw - 44px)); }
   <button class="x" id="tl-close" title="close" aria-label="close">×</button>
   <h2><span id="tl-head"></span><span class="desc" id="tl-desc"></span></h2>
   <div class="events" id="tl-events"></div>
+</dialog>
+<dialog id="samebox">
+  <button class="x" id="sm-close" title="close" aria-label="close">×</button>
+  <h2><span id="sm-head"></span><span class="desc" id="sm-desc"></span></h2>
+  <div class="seg" id="sm-kind"></div>
+  <div id="sm-rows"></div>
 </dialog>
 <dialog id="dbbox">
   <button class="x" id="db-close" title="close" aria-label="close">×</button>

@@ -115,6 +115,7 @@ type PR struct {
 	Services  []string `json:"sv"`
 	Resources []string `json:"rsc,omitempty"` // the resources it changes (code, tests or docs), azurerm_ names
 	DataSrcs  []string `json:"dsc,omitempty"` // the data sources it changes
+	Shared    []string `json:"sf,omitempty"`  // the files it changes that another open PR also changes, setup files left out
 	Kinds     []string `json:"k"`             // docs, vendor, tests, ci, schema, changelog, other
 	Change    string   `json:"kd,omitempty"`  // what sort of change it is, one of KindOrder: open PRs only, as it reads the diff
 	Files     int      `json:"f"`
@@ -323,9 +324,11 @@ func Build(in Input, cfg Config) *Data {
 	labels := map[string]bool{}
 	d.PRs = make([]PR, 0, len(in.PRs))
 	testService := serviceNames(in.Tests)
+	shared := sharedFiles(in.PRs)
 	for _, p := range in.PRs {
 		row := derive(p, in.Events[p.Number], in.Commits[p.Number], in.Verdicts[p.Number], in.Closes[p.Number], maint, partners, now)
 		row.Props = Properties(in.Diffs[p.Number])
+		row.Shared = shared[p.Number]
 		if p.State == db.PROpen {
 			row.Change = Kind(in.Diffs[p.Number], p.Title, p.Labels, row.Kinds)
 		}

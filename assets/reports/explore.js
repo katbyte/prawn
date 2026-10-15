@@ -52,6 +52,18 @@ const BY_N = new Map(D.prs.map(p => [p.n, p]));
 for (const c of (D.checks || [])) { const p = BY_N.get(c.n); if (p) p.checks.push(c); }
 for (const p of D.prs) p.checkNames = p.checks.map(c => c.check).join(',');
 
+// the open PRs working on the same thing as a PR: the same files, the same resources or data sources, the same service
+const SAME_ON = { files: p => p.sf || [], res: p => [...(p.rsc || []), ...(p.dsc || []).map(d => d + ' (data source)')], svc: p => p.sv };
+const OPEN_ON = { files: new Map(), res: new Map(), svc: new Map() };
+for (const p of D.prs) if (p.s === 'open') for (const kind in SAME_ON) for (const x of SAME_ON[kind](p)) { if (!OPEN_ON[kind].has(x)) OPEN_ON[kind].set(x, []); OPEN_ON[kind].get(x).push(p); }
+// each with what it shares, the most shared first, then the most recently active
+function sameAs(p, kind) {
+  const by = new Map();
+  for (const x of SAME_ON[kind](p)) for (const o of OPEN_ON[kind].get(x) || []) if (o !== p) { if (!by.has(o)) by.set(o, []); by.get(o).push(x); }
+  return [...by].map(([o, on]) => ({ p: o, on })).sort((a, b) => b.on.length - a.on.length || a.p.idle - b.p.idle);
+}
+for (const p of D.prs) p.same = { files: sameAs(p, 'files').length, res: sameAs(p, 'res').length, svc: sameAs(p, 'svc').length };
+
 // ---- state: everything the url hash carries ----
 const DEFAULTS = { tab: 'prs', from: D.viewFrom || D.since, to: '', st: null, g: '', a: '', svc: '', k: '', l: '', ct: '', ef: '', dr: '', q: '', sort: 'u', gb: '', gc: '', sh: '', dir: '', dc: '', sort2: '', who: '', pv: '', pm: '', pl: '', sg: '', mo: '', pd: '', yr: '', ddc: '', cf: '', gran: 'day', by: '', psort: '', asort: '', marks: 'major', open_n: '', m: '', cols: '2', zero: '1', dots: 'auto', tv: 'charts', ca: '', cb: '' };
 const S = { ...DEFAULTS };
@@ -70,7 +82,7 @@ function writeHash() {
 function set(k, v) { S[k] = v; update(); }
 
 // ---- the query language: key:value, key>n, key<n, -key:value, bare words ----
-// keys: author group svc kind label court state effort age idle size files rounds fr reviewer n title draft decision milestone mergeable cd waiting thumbs check ai
+// keys: author group svc kind label court state effort age idle size files rounds fr reviewer n title draft decision milestone mergeable cd waiting thumbs check ai samefiles sameresources sameservice
 const KEYS = {
   author: p => p.lo, a: p => p.lo, group: p => p.g, g: p => p.g, svc: p => p.sv, service: p => p.sv, s: p => p.sv,
   kind: p => p.kd || (p.s === 'open' ? 'other' : null), touches: p => p.k, k: p => p.k, only: p => p.k.length === 1 ? p.k[0] : 'mixed', label: p => p.l, l: p => p.l, court: p => p.ct, c: p => p.ct, state: p => p.s, st: p => p.s,
@@ -78,6 +90,7 @@ const KEYS = {
   tests: p => p.tc ? p.tc.s : 'none', testsfailed: p => p.tc ? p.tc.f : null, testage: p => testAge(p), testsince: p => testsSince(p), failedtest: p => p.tc && p.tc.ft ? p.tc.ft : [], tested: p => p.tc ? p.tc.b.map(b => b.sv) : [],
   ciage: p => ciAge(p), failingfor: p => failingFor(p), failing: p => p.cif || [], slashtest: p => slashState(p), slashage: p => slashAge(p), ciok: p => p.ci === 'passing' || (p.ci === 'failing' && (p.cif || []).length > 0 && p.cif.every(c => c === 'changelog')) ? 'yes' : 'no', onlyfailing: p => { const f = [...new Set(p.cif || [])]; return f.length === 1 ? f[0] : f.length ? 'several' : null; }, behind: p => p.bh ?? null, behindfor: p => behindFor(p), ahead: p => p.ah ?? null, drift: p => p.cdr ?? null,
   props: p => (p.pp || []).length, prop: p => p.pp || [], resource: p => p.rsc || [], datasource: p => p.dsc || [], resources: p => (p.rsc || []).length, datasources: p => (p.dsc || []).length, services: p => p.sv.length, // how many schema properties the diff touches, and which
+  samefiles: p => p.same.files, sameresources: p => p.same.res, sameservice: p => p.same.svc, // how many other open PRs change the same files, resources, service
   fr: p => p.fr < 0 ? null : p.fr, reviewer: p => p.rw, r: p => p.rw, n: p => p.n, title: p => p.tl, t: p => p.tl,
   draft: p => p.d ? 'yes' : 'no', approved: p => p.approved ? 'yes' : 'no', decision: p => p.rd || 'none', rd: p => p.rd || 'none', milestone: p => p.ms || '', ms: p => p.ms || '',
   mergeable: p => p.mg, mg: p => p.mg, cd: p => p.cd, waiting: p => p.wd, wd: p => p.wd, thumbs: p => p.th, comments: p => p.cm,
@@ -240,8 +253,8 @@ function renderFilters() {
   syncDraft();
   $('#f-clear').addEventListener('click', () => { for (const k of ['from', 'to', 'st', 'g', 'a', 'svc', 'k', 'l', 'ct', 'ef', 'dr', 'q', 'sh', 'sort', 'dir']) S[k] = DEFAULTS[k]; update(true); }); // back to the page as it opens: every open PR, the most recently updated first
   $('#qhelp').innerHTML = `<details><summary>query keys</summary> — <code>key:value</code> matches (prefix for text, any of <code>a,b</code>), <code>key&gt;n</code> <code>key&lt;n</code> compare, <code>-key:value</code> excludes, bare words search title and author.
-    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop resource resources datasource datasources services rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok slashtest slashage behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>onlyfailing</code> the check when it is the only one failing, <code>ciok</code> yes when ci passes or fails only on the changelog, <code>slashtest</code> the latest /test's results (passing, failing, pending, notrun, none) and <code>slashage</code> the days since it was asked, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service).
-    e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
+    keys: <code>author group svc kind touches only label court state status effort age idle size files props prop resource resources datasource datasources services samefiles sameresources sameservice rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok slashtest slashage behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai suggested n title</code> (<code>kind</code> is the sort of change — <code>kind:"1 property"</code>, <code>kind:resource</code>, <code>kind:"test fix"</code>; <code>touches:docs</code> touches docs files, <code>only:docs</code> is docs and nothing else; <code>approved</code> is a maintainer's, <code>decision</code> is github's; <code>status</code> is merged, closed, or an open PR's state today; <code>ci</code> is passing, failing, running, approval, expired, none; <code>ciage</code> and <code>failingfor</code> are days, <code>failing</code> a check's name, <code>onlyfailing</code> the check when it is the only one failing, <code>ciok</code> yes when ci passes or fails only on the changelog, <code>slashtest</code> the latest /test's results (passing, failing, pending, notrun, none) and <code>slashage</code> the days since it was asked, <code>behind</code> and <code>drift</code> commits against the base branch, <code>behindfor</code> the days since the branch last caught up with it; <code>tests</code> is teamcity's failing, running, passing, cancelled, none, <code>testsince</code> the commits pushed since they ran, <code>failedtest</code> a test's name, <code>tested</code> a service; <code>samefiles</code>, <code>sameresources</code> and <code>sameservice</code> count the other open PRs changing the same files, resources or service).
+    e.g. <code>court:maintainer effort&lt;3 idle&gt;30</code> · <code>label:waiting-response cd&gt;60</code> · <code>fr:none state:open</code> · <code>reviewer:katbyte rounds&gt;2</code> · <code>approvedby:katbyte ci:passing</code> · <code>check:stale ai&gt;0.8</code> · <code>samefiles&gt;0</code> · <code>suggested:fixes</code> (${CATEGORIES.map(c => c[4]).join(', ')})</details>`;
 }
 
 // the draft button has three states, a click going round them: off (no drafts), lit (drafts shown with the
@@ -461,7 +474,7 @@ function showInfo(ev, key, extra = '') {
 }
 document.addEventListener('mousedown', ev => { if (!ev.target.closest('#info')) infoEl.hidden = true; });
 // a column's query key: what to type in the query box to filter by it (columns with no key have none)
-const COL_QUERY = { n: 'n', t: 'title', a: 'author', g: 'group', as: 'assoc', s: 'state', status: 'status', d: 'draft', ct: 'court', cd: 'cd', age: 'age', idle: 'idle', ef: 'effort', size: 'size', f: 'files', props: 'props', kd: 'kind', k: 'touches', sv: 'svc', l: 'label', ms: 'milestone', rsc: 'resource', dsc: 'datasource', rr: 'rounds', rv: 'reviews', ap: 'approvals', rc: 'reviewcomments', mrv: 'memberreviews', mrc: 'memberreviewcomments', cm: 'comments', th: 'thumbs', rw: 'reviewer', rb: 'reviewedby', ab: 'approvedby', cb: 'changesby', fr: 'fr', fw: 'responder', lm: 'lastmaint', wd: 'waiting', rd: 'decision', mg: 'mergeable', ci: 'ci', ciage: 'ciage', cifor: 'failingfor', cifail: 'failing', behind: 'behind', behindfor: 'behindfor', drift: 'drift', tests: 'tests', tfail: 'testsfailed', testage: 'testage', tsince: 'testsince', slash: 'slashtest', mb: 'mergedby', aiMax: 'ai', checks: 'check',
+const COL_QUERY = { n: 'n', t: 'title', a: 'author', g: 'group', as: 'assoc', s: 'state', status: 'status', d: 'draft', ct: 'court', cd: 'cd', age: 'age', idle: 'idle', ef: 'effort', size: 'size', f: 'files', props: 'props', kd: 'kind', k: 'touches', sv: 'svc', l: 'label', ms: 'milestone', rsc: 'resource', dsc: 'datasource', sfl: 'samefiles', srs: 'sameresources', ssv: 'sameservice', rr: 'rounds', rv: 'reviews', ap: 'approvals', rc: 'reviewcomments', mrv: 'memberreviews', mrc: 'memberreviewcomments', cm: 'comments', th: 'thumbs', rw: 'reviewer', rb: 'reviewedby', ab: 'approvedby', cb: 'changesby', fr: 'fr', fw: 'responder', lm: 'lastmaint', wd: 'waiting', rd: 'decision', mg: 'mergeable', ci: 'ci', ciage: 'ciage', cifor: 'failingfor', cifail: 'failing', behind: 'behind', behindfor: 'behindfor', drift: 'drift', tests: 'tests', tfail: 'testsfailed', testage: 'testage', tsince: 'testsince', slash: 'slashtest', mb: 'mergedby', aiMax: 'ai', checks: 'check',
   gn: 'n', gtitle: 'title', guser: 'author', gstate: 'state', gmergedby: 'mergedby', greviews: 'reviews', greviewcomments: 'reviewcomments', gcomments: 'comments', greviewers: 'reviewedby', glabels: 'label' };
 // right-click a header: its query key, and its commonest values (or the comparisons, for a number) to add to the query
 function showColKey(ev, colKey) {
@@ -599,6 +612,11 @@ const someNames = (xs, key) => !xs || !xs.length ? '' : xs.slice(0, 2).map(x => 
 col('rsc', 'resources', 'the resources it changes — code, tests or docs', p => someNames(p.rsc, 'resource'), p => (p.rsc || []).length, { hi: true });
 col('dsc', 'data sources', 'the data sources it changes — code, tests or docs', p => someNames(p.dsc, 'datasource'), p => (p.dsc || []).length, { hi: true });
 col('sv', 'services', 'the services touched (internal/services/<name>)', p => p.sv.slice(0, 3).map(s => `<span class="badge clk" data-svc="${esc(s)}">${esc(s)}</span>`).join('') + (p.sv.length > 3 ? `<span class="badge">+${p.sv.length - 3}</span>` : ''), p => p.sv[0] || LAST);
+// how many other open PRs work on the same thing: the count opens them in a window
+const sameCell = kind => p => p.same[kind] ? `<span class="clk" data-same="${kind}" data-n="${p.n}">${p.same[kind]}</span>` : '—';
+col('sfl', 'same files', 'how many other open PRs change the same files — vendored code, generated files, the changelog and the registration lists left out', sameCell('files'), p => p.same.files, { cls: 'num', hi: true });
+col('srs', 'same resources', 'how many other open PRs change the same resources or data sources', sameCell('res'), p => p.same.res, { cls: 'num', hi: true });
+col('ssv', 'same service', 'how many other open PRs change the same service', sameCell('svc'), p => p.same.svc, { cls: 'num', hi: true });
 col('l', 'labels', 'the labels', p => p.l.slice(0, 4).map(l => `<span class="badge clk" data-label="${esc(l)}">${esc(l)}</span>`).join('') + (p.l.length > 4 ? `<span class="badge">+${p.l.length - 4}</span>` : ''), p => p.l[0] || LAST);
 col('ms', 'milestone', 'the milestone', p => esc(p.ms || ''), p => p.ms || LAST);
 col('rr', 'rounds', 'changes-requested reviews by maintainers', p => p.rr || '—', p => p.rr, { cls: 'num', hi: true });
@@ -900,7 +918,7 @@ const EXPORT_VALUE = {
   tests: p => p.tc ? p.tc.s : '', tfail: p => p.tc ? p.tc.f : '', tpass: p => p.tc ? p.tc.p : '', tsince: p => testsSince(p) ?? '',
   kd: p => p.kd || '',
   cifail: p => (p.cif || []).join(', '), behind: p => p.bh ?? '', behindfor: p => behindFor(p) == null ? '' : Math.round(behindFor(p)), drift: p => p.cdr ?? '',
-  k: p => p.k.join(', '), sv: p => p.sv.join(', '), rsc: p => (p.rsc || []).join(', '), dsc: p => (p.dsc || []).join(', '), l: p => p.l.join(', '), rw: p => p.rw.join(', '), rb: p => p.rb.join(', '), ab: p => p.ab.join(', '),
+  k: p => p.k.join(', '), sv: p => p.sv.join(', '), rsc: p => (p.rsc || []).join(', '), dsc: p => (p.dsc || []).join(', '), l: p => p.l.join(', '), sfl: p => p.same.files, srs: p => p.same.res, ssv: p => p.same.svc, rw: p => p.rw.join(', '), rb: p => p.rb.join(', '), ab: p => p.ab.join(', '),
   cb: p => p.cb.map(c => c.l).join(', '), li: p => (p.li || []).join(', '), checks: p => p.checks.map(c => c.check).join(', '),
 };
 // columns only an export has: nothing a table cell would show
@@ -1064,14 +1082,21 @@ function bindColumnDrag(view, cols) {
     });
   }
 }
+// a click in a PR's row or detail that leads somewhere else: its timeline, the PRs on the same work, a person's page, or a filter.
+// True when it was one of those.
+function followClick(e) {
+  const tl = e.target.closest('[data-timeline]'); if (tl) { e.stopPropagation(); openTimeline(tl.dataset.timeline); return true; }
+  const sm = e.target.closest('[data-same]'); if (sm) { e.stopPropagation(); openSame(sm.dataset.n, sm.dataset.same); return true; }
+  const per = e.target.closest('[data-person]'); if (per) { e.stopPropagation(); S.who = per.dataset.person; if (per.dataset.pl) { S.pv = 'data'; S.pl = per.dataset.pl; if (S.st == null) S.st = stateFilter(); } set('tab', 'person'); return true; }
+  const clk = e.target.closest('.clk');
+  if (clk) { e.stopPropagation(); if (clk.dataset.author) set('a', clk.dataset.author); else if (clk.dataset.svc) set('svc', clk.dataset.svc); else if (clk.dataset.label) set('l', clk.dataset.label); else if (clk.dataset.reviewer) set('q', 'reviewer:' + clk.dataset.reviewer); else if (clk.dataset.group) set('g', clk.dataset.group); else if (clk.dataset.kind) set('k', clk.dataset.kind); else if (clk.dataset.q != null) { S.q = clk.dataset.q; set('tab', 'prs'); } return true; }
+  return false;
+}
 function bindRowClicks(view) {
   // the view element outlives its content: bind once, or every re-render stacks another toggle on each row click
   if (view.rowsBound) return; view.rowsBound = true;
   view.addEventListener('click', e => {
-    const tl = e.target.closest('[data-timeline]'); if (tl) { e.stopPropagation(); openTimeline(tl.dataset.timeline); return; }
-    const per = e.target.closest('[data-person]'); if (per) { e.stopPropagation(); S.who = per.dataset.person; if (per.dataset.pl) { S.pv = 'data'; S.pl = per.dataset.pl; if (S.st == null) S.st = stateFilter(); } set('tab', 'person'); return; }
-    const clk = e.target.closest('.clk');
-    if (clk) { e.stopPropagation(); if (clk.dataset.author) set('a', clk.dataset.author); else if (clk.dataset.svc) set('svc', clk.dataset.svc); else if (clk.dataset.label) set('l', clk.dataset.label); else if (clk.dataset.reviewer) set('q', 'reviewer:' + clk.dataset.reviewer); else if (clk.dataset.group) set('g', clk.dataset.group); else if (clk.dataset.kind) set('k', clk.dataset.kind); else if (clk.dataset.q != null) { S.q = clk.dataset.q; set('tab', 'prs'); } return; }
+    if (followClick(e)) return;
     const tr = e.target.closest('tr.pr'); if (!tr) return;
     set('open_n', S.open_n === tr.dataset.n ? '' : tr.dataset.n);
   });
@@ -1166,10 +1191,59 @@ function detail(p) {
     <div class="life">${life}</div>
     <div class="legend">${STATE_NAMES.map((s, i) => `<span title="${STATE_DESC[i]}"><i class="box" style="--c:${STATE_COLORS[i]}"></i>${s}</span>`).join('')}<span title="ci has been failing since then: the stripes lie over whatever state the PR was in"><i class="box stripes"></i>ci failing</span></div>
     <div class="facts">${facts}</div>
+    ${sameLine(p)}
     <div class="cards">${cards.join('')}</div>
     ${failing.length ? `<div class="failing">${failing.join('')}</div>` : ''}
   </div>`;
 }
+// the open PRs on the same work as a PR, as a count each for its files, its resources and its service: a button that opens them in a window
+const SAME_KINDS = [['files', 'files'], ['res', 'resources'], ['svc', 'service']];
+function sameLine(p) {
+  const has = { files: true, res: SAME_ON.res(p).length > 0, svc: p.sv.length > 0 };
+  const items = SAME_KINDS.filter(([k]) => has[k]).map(([k, l]) => p.same[k] ? `<button class="plain" data-same="${k}" data-n="${p.n}">${p.same[k]} same ${l}</button>` : `<span class="dim">0 same ${l}</span>`);
+  return `<div class="same"><b>also open</b>${items.join('')}</div>`;
+}
+// the same-work window: the open PRs changing the same files, resources or service as a PR, the most shared first. A row opens
+// its detail in place, and a count in that detail moves the window on to that PR.
+const SAME_TEXT = {
+  files: n => `${n} open PR${n === 1 ? ' edits' : 's edit'} the same files`,
+  res: n => `${n} open PR${n === 1 ? ' changes' : 's change'} the same resources`,
+  svc: (n, p) => `${n} open PR${n === 1 ? '' : 's'} in the same service${p.sv.length > 1 ? 's' : ''}`,
+};
+let SAME = { n: '', kind: 'files', open: '' };
+function openSame(n, kind) {
+  SAME = { n: String(n), kind, open: '' };
+  renderSame();
+  const box = $('#samebox'); if (!box.open) box.showModal();
+  $('#sm-rows').scrollTop = 0;
+}
+function renderSame() {
+  const p = BY_N.get(Number(SAME.n)); if (!p) return;
+  const rows = sameAs(p, SAME.kind);
+  const cols = [COL.n, COL.t, { l: 'author', cls: '', f: o => `<span class="clk" data-author="${esc(o.a)}">${esc(o.a)}</span>` }, COL.ct, COL.idle];
+  // what each shares with it, on one line: how many, then a file by its name or a resource without its azurerm_ (all in full on hover)
+  const name = x => SAME.kind === 'files' ? x.split('/').pop() : x.replace(/^azurerm_/, '');
+  const shares = on => SAME.kind === 'svc' ? on.map(s => `<span class="badge">${esc(s)}</span>`).join('') : `<span title="${esc(on.join('\n'))}"><span class="dim">${on.length} ·</span> ${on.map(x => esc(name(x))).join(', ')}</span>`;
+
+  $('#sm-head').innerHTML = `<a href="${prURL(p.n)}" target="_blank" rel="noopener">#${p.n}</a> ${esc(p.t)}`;
+  $('#sm-desc').textContent = `${SAME_TEXT[SAME.kind](rows.length, p)} · the most shared first · click a row for its detail`;
+  $('#sm-kind').innerHTML = SAME_KINDS.map(([k, l]) => `<button data-k="${k}" class="${k === SAME.kind ? 'on' : ''}">${l}<span class="n">${p.same[k]}</span></button>`).join('');
+  $('#sm-rows').innerHTML = `<table><thead><tr>${cols.map(c => `<th class="${c.cls}">${c.l}</th>`).join('')}<th>shares</th></tr></thead><tbody>
+    ${rows.map(r => `<tr class="pr" data-n="${r.p.n}">${cols.map(c => `<td class="${c.cls}">${c.f(r.p)}</td>`).join('')}<td class="shares">${shares(r.on)}</td></tr>${SAME.open === String(r.p.n) ? `<tr class="detail"><td colspan="${cols.length + 1}">${detail(r.p)}</td></tr>` : ''}`).join('') || `<tr><td colspan="${cols.length + 1}" class="empty">no other open PR</td></tr>`}
+  </tbody></table>`;
+}
+$('#samebox').addEventListener('click', e => {
+  const k = e.target.closest('#sm-kind button'); if (k) { SAME.kind = k.dataset.k; SAME.open = ''; renderSame(); return; }
+  if (e.target.closest('[data-same], [data-timeline]')) { followClick(e); return; }
+  // a filter or a person's page is for the page behind: the window gets out of its way
+  if (e.target.closest('[data-person], .clk')) { $('#samebox').close(); followClick(e); return; }
+
+  const tr = e.target.closest('tr.pr'); if (!tr) return;
+  SAME.open = SAME.open === tr.dataset.n ? '' : tr.dataset.n;
+  renderSame();
+});
+$('#sm-close').addEventListener('click', () => $('#samebox').close());
+
 // the timeline window: a PR's events, newest first, maintainers' in their colour
 function openTimeline(n) {
   const p = D.prs.find(x => String(x.n) === String(n)); if (!p) return;
@@ -1762,7 +1836,7 @@ function viewPromptSections(ask, full) {
 Design a view of prawn explore for the ask above. Context: prawn explore is a page over every pull request of ${D.repo} that was open at any point since ${D.since} — ${fmtNum(D.prs.length)} PRs, ${fmtNum(open)} open now, generated ${D.generated}. A global filter picks a set of PRs; tabs show that set: prs (a sortable table), trends (metric panels over time), suggested (easy reviews), services, people (authors and reviewers), checks (close candidates), data (one month's closed and merged PRs, for a spreadsheet).
 Answer with ONE json code block and nothing else, in exactly this form:
 {"prawn":"view","name":"<short name for the view>","hash":"tab=trends&m=<panels>&gran=day"} — or, for a table, "tab=prs&q=<query>&sort=<column>&dc=<columns>"
-The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok slashtest slashage behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
+The hash is a url query string. Filter keys (all optional): from=yyyy-mm-dd, to=yyyy-mm-dd (the period), st=open,merged,closed (states; omitted means open on most tabs and every state on trends), g=<group> (author group: ${[...GROUP_NAMES, 'community'].join(' | ')}), a=<login,login> (authors), svc=<service,service>, k=<kind,kind> (${KINDS.join(' | ')}), l=<label,label>, ct=maintainer|author (whose court an open PR is in), ef=<lo>-<hi> (review effort 1..5), dr=yes|no (only the drafts, or none of them; omitted shows them with the rest), q=<query> (a query language: key:value matches, key>n key<n compare, -key:value excludes; keys: author group svc kind label court state status effort age idle size files props prop samefiles sameresources sameservice (how many other open PRs change the same files, resources, service) rounds fr cd waiting reviewer reviewedby approvedby changesby responder lastmaint mergedby assoc approved decision mergeable ci ciage failingfor failing onlyfailing ciok slashtest slashage behind behindfor drift tests testsfailed testage testsince failedtest tested milestone draft thumbs comments reviews reviewcomments memberreviews memberreviewcomments membercomments approvals check ai n title, suggested (the suggested tab's categories: ${CATEGORIES.map(c => c[4]).join(' | ')}); e.g. "court:maintainer effort<3 idle>30").
 PRs keys: tab=prs, sort=<column key> (omitted means u, the most recently updated first), dir=asc (reverses the sort), gb=suggested|kind|docs|service|court|status|ci|cifail|tests|group|effort|author (the table in sections), gc=<section|section> (the sections folded shut), sh=approved|docs|examples|contributing|tests|api|resource|datasource|prop1|prop2-4 (only that kind of PR: approved, provider docs only, examples only, contributing docs only, ci/test only, an api version upgrade, a new resource, a new data source, a single property changed, 2-4 properties changed), dc=<column key,column key,...> (the columns shown, in order; omitted means ${DEFAULT_COLS.join(',')}). Columns (key: label): ${Object.values(COL).map(c => `${c.k}: ${c.l}`).join(', ')}.
 Trends keys: tab=trends, gran=day|week|month, cols=1|2|3, marks=major|minor|none (release markers).
 - m: the panels, separated by |. Each panel is an optional flag prefix then a comma separated list of metric keys: "s:" stacks the series as areas (only for same-unit series that add up, like the review statuses or opened-by-group), "b:" draws bars, "sb:" stacked bars, "t:" shows the panel as a table, "w:" makes the panel span the grid; flags combine ("sbw:"). A key prefixed with ! goes on the right-hand axis, with ~ it is plotted but hidden until the user clicks its legend entry (useful for a dominant series that would flatten the others); a panel may mix at most two units and the second unit is put on the right automatically.
