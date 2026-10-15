@@ -144,9 +144,10 @@ type PR struct {
 	BehindSince    int64    `json:"bhs,omitempty"` // when the branch last caught up with its base (the merge base), while it is behind
 	Ahead          *int     `json:"ah,omitempty"`
 	CIDrift        *int     `json:"cdr,omitempty"`
-	Tests          *Tests   `json:"tc,omitempty"` // the acceptance tests teamcity ran for it, open PRs only
-	TestRun        *TestRun `json:"ts,omitempty"` // the latest /test asked on it, and the latest results the bot posted
-	Props          []string `json:"pp,omitempty"` // the schema properties the diff adds or changes on existing resources, open PRs only
+	Tests          *Tests   `json:"tc,omitempty"`  // the acceptance tests teamcity ran for it, open PRs only
+	TestRun        *TestRun `json:"ts,omitempty"`  // the latest /test asked on it, and the latest results the bot posted
+	Props          []string `json:"pp,omitempty"`  // the schema properties the diff adds or changes on existing resources, open PRs only
+	PropsOn        []Prop   `json:"ppo,omitempty"` // the same, each with the resource or shared file it is on
 
 	FirstResponseDays float64 `json:"fr"` // days to the first maintainer response, -1 when none yet
 	FirstResponder    string  `json:"fw,omitempty"`
@@ -327,7 +328,8 @@ func Build(in Input, cfg Config) *Data {
 	shared := sharedFiles(in.PRs)
 	for _, p := range in.PRs {
 		row := derive(p, in.Events[p.Number], in.Commits[p.Number], in.Verdicts[p.Number], in.Closes[p.Number], maint, partners, now)
-		row.Props = Properties(in.Diffs[p.Number])
+		row.PropsOn = PropertiesOn(in.Diffs[p.Number])
+		row.Props = propNames(row.PropsOn)
 		row.Shared = shared[p.Number]
 		if p.State == db.PROpen {
 			row.Change = Kind(in.Diffs[p.Number], p.Title, p.Labels, row.Kinds)

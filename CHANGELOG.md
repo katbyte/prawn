@@ -1,7 +1,8 @@
 ## Unreleased
 
-- a PR's detail shows how many open PRs change the same files, resources or service; click to see them
-- **same files**, **same resources** and **same service** columns, with `samefiles`, `sameresources` and `sameservice` query keys
+- a PR's detail shows how many open PRs change the same files, resources, properties or service; click to see them
+- **same files**, **same resources**, **same properties** and **same service** columns, with `samefiles`, `sameresources`, `sameproperties` and `sameservice` query keys
+- **show** can pick the PRs where another open PR changes the same property
 - the export window closes with an x in its corner, and a click outside any window closes it
 - the chart popup's "narrow to this range" sits beside "copy prompt"; its close button is gone, a click outside or esc closes it
 

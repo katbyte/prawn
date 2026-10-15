@@ -115,3 +115,41 @@ diff --git a/website/docs/r/lustre.html.markdown b/website/docs/r/lustre.html.ma
 		})
 	}
 }
+
+func TestPropertiesOn(t *testing.T) {
+	t.Parallel()
+	got := PropertiesOn(`diff --git a/internal/services/containers/kubernetes_cluster_resource.go b/internal/services/containers/kubernetes_cluster_resource.go
+--- a/internal/services/containers/kubernetes_cluster_resource.go
++++ b/internal/services/containers/kubernetes_cluster_resource.go
+@@ -80,6 +81,10 @@ func resourceKubernetesCluster() *pluginsdk.Resource {
++			"dns_profile": {
++				Type:     pluginsdk.TypeList,
++			},
+diff --git a/internal/services/containers/kubernetes_nodepool.go b/internal/services/containers/kubernetes_nodepool.go
+--- a/internal/services/containers/kubernetes_nodepool.go
++++ b/internal/services/containers/kubernetes_nodepool.go
+@@ -20,6 +20,7 @@ func SchemaDefaultNodePool() *pluginsdk.Schema {
+ 			"max_count": {
+-				Optional: true,
++				Required: true,
+ 			},
+diff --git a/website/docs/r/kubernetes_cluster.html.markdown b/website/docs/r/kubernetes_cluster.html.markdown
+--- a/website/docs/r/kubernetes_cluster.html.markdown
++++ b/website/docs/r/kubernetes_cluster.html.markdown
+@@ -60,6 +60,8 @@
++* ` + "`dns_profile`" + ` - (Optional) A dns profile block.
+diff --git a/website/docs/d/kubernetes_cluster.html.markdown b/website/docs/d/kubernetes_cluster.html.markdown
+--- a/website/docs/d/kubernetes_cluster.html.markdown
++++ b/website/docs/d/kubernetes_cluster.html.markdown
+@@ -30,6 +30,7 @@
++* ` + "`dns_profile`" + ` - A dns profile block.
+`)
+	want := []Prop{
+		{On: "azurerm_kubernetes_cluster", Name: "dns_profile"},
+		{On: "data.azurerm_kubernetes_cluster", Name: "dns_profile"},
+		{On: "internal/services/containers/kubernetes_nodepool.go", Name: "max_count"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("PropertiesOn() = %v, want %v", got, want)
+	}
+}
